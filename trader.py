@@ -6,11 +6,18 @@ from keras.layers import BatchNormalization, LSTM, Dense, Dropout, Input, Concat
 from keras.models import Model
 from keras.optimizers import Adam
 import tensorflow
-
-
+'''             ,\
+             \\\,_
+              \` ,\
+         __,.-" =__)
+       ."        )
+    ,_/   ,    \/\_
+    \_|    )_-\ \_-`
+jgs    `-----` `--`
+'''
 class Trader:
     def __init__(self, model, init_balance=100, stock_history=[], companies=['GOOG', 'AAPL'],
-                 interval="1h", buy_tax=0.06, timesteps=10, batch_size=6, pessimism_factor=0.03, hold_reward=0.3,hold_periodic_decay=0.03, learning_rate=0.001, forbidden_sell_punishment=1):
+                 interval="1h", buy_tax=0.06, timesteps=10, batch_size=6, pessimism_factor=0.03, hold_reward=0.05, learning_rate=0.0001):
         self.init_balance = init_balance
         self.balance = init_balance
         self.model = model
@@ -27,17 +34,19 @@ class Trader:
         self.history = []
         self.pessimism_factor = pessimism_factor
         self.hold_reward = hold_reward
-        self.hold_periodic_decay = hold_periodic_decay
         self.learning_rate = learning_rate
-        self.history = [] #[input_data, [output_data], [transactions], [rewards]]
-        self.forbidden_sell_punishment = forbidden_sell_punishment
-    def get_buy_price(self,stock_data):
-        return (stock_data['High'].values[0] + stock_data['Low'].values[0])*(1+self.pessimism_factor)*(1+self.buy_tax)/2
-    def get_sell_price(self, stock_data, isList=False):
-        if not isList:
+       # self.history = []
+        self.history = {}
+    def get_buy_price(self,stock_data, isInputData=False):
+        if not isInputData:
+            return (stock_data['High'].values[0] + stock_data['Low'].values[0])*(1+self.pessimism_factor)*(1+self.buy_tax)/2
+        else:
+            return (stock_data[-1][-1][1] + stock_data[-1][-1][2])*(1+self.pessimism_factor)*(1+self.buy_tax)/2
+    def get_sell_price(self, stock_data, isInputData=False):
+        if not isInputData:
             return (stock_data['High'].values[0] + stock_data['Low'].values[0])/(2*(1+self.pessimism_factor))
         else:
-            return (stock_data[0][-1][1] + stock_data[0][-1][1][2])/(1*(1+self.pessimism_factor))
+            return (stock_data[-1][-1][1] + stock_data[-1][-1][2])/(2*(1+self.pessimism_factor))
     def buy(self, company, amount):
         """
         :param company: indicator of which company you're buying from
@@ -46,7 +55,7 @@ class Trader:
         """
         stock_data = self.get_stock_data(company)
         buy_price = self.get_buy_price(stock_data)
-        self.wallet[company][0] = (self.wallet[company][0]*self.wallet[company][1] + buy_price*amount)/(amount + self.wallet[company][1])
+        self.wallet[company][0] = (self.wallet[company][0]*self.wallet[company][1] + buy_price*amount)/(amount + self.wallet[company][1]) #Novo preço médio pelo que trocou
         self.wallet[company][1] += amount
         self.balance -= buy_price*amount
 
@@ -71,69 +80,166 @@ class Trader:
                 hist[company] = comp.history(period="1w", interval="1m").tail(1)
         return hist
 
-    def prepare_stock_data(self, received_data):
+    def prepare_stock_data(self, received_data, size=1):
+        '''
+        Prepara dados
+        :param received_data: Dicionário com DataFrames com dados de stocks pra cada empresa
+        :param size: Número de dados que queres nesse tight ass
+        :return: Dados pro modelo de forma [[batch_size, timesteps, 5]*tamanho_empresas, [tamanho_empresas, 2]]
+        '''
         data = {}  # Cada dado de cada empresa tem tamanho [timesteps, features]
+
         for company in received_data.keys():
             hist = received_data[company][['Open', 'High', 'Low', 'Close', 'Volume']].values
-            xin = hist[-(self.timesteps):]
-            xin = np.array(xin)
-            xin = xin.reshape((1, self.timesteps, 5))  #thang
-            data[company] = xin
-        return data
+            data[company] = []
+            for i in range(size):
+                xin = hist[-(self.timesteps):]
+                xin = np.array(xin)
+                xin = xin.reshape((1, self.timesteps, 5))  #thang
+                data[company].append(xin)
+                hist = hist[:-1]
+
+        output_which_is_input = []
+        for i in data.values():
+            output_which_is_input.append(np.concatenate(i))
+        if size>1:
+            wallet_history = [wallet for wallet in self.history.values()[-size:-1]]+[list(self.wallet.values())]
+            output_which_is_input.append(np.concatenate(wallet_history))
+        else:
+            output_which_is_input.append(np.array([list(self.wallet.values())]))
+        return output_which_is_input
+
 
     def decide_transaction(self):
+        '''
+        Aqui ele decide o que fazer, automaticamente ir buscando os dados mais recentes
+
+        :return:
+        '''
         data = self.get_stock_data("1mo")
-        input_data = list(self.prepare_stock_data(data).values()) + [list(self.wallet.values())]
-        results = self.model.predict(input_data)
+        input = self.prepare_stock_data(data)
+
+
+        results = self.model.predict(input)
+
+        # D E B U G
+        #results = np.zeros((2, 3))
+
+        '''
+        Results hopefully terá as dimensões (índice de empresa, índice de transação)
+        '''
+
         '''
         0 - B - BUY
         1 - S - SELL
         2 - H - HOLD
         '''
-        self.history.append([data.index[-1], input_data, results, [("N", 0) for i in len(self.wallet)], np.zeros((len(self.wallet.keys()), 3))])
+        t = data[list(self.wallet.keys())[-1]].index[-1] # Isto devia ser a ultima data
+
+        for i in range(len(data.keys())):
+            if data[list(self.wallet.keys())[i]].index[-1] != t:
+                raise Exception ("Date is not the same in companies")
+
+        self.history[t] = [input, results, dict(zip(list(self.wallet.keys()), [dict(zip(["Transaction","Transaction_amount","Reward","Reward_Check"],["N", 0, 0, 1])) for i in range(len(self.wallet.keys()))]))]
         '''
-        0 - Data
-        1 - Input
-        2 - Output sem rewards aplicados
-        3 - Par letras da transação (B, S, H, S*H) e quantidade para cada empresa
-        4 - rewards de cada Q value, a aplicar no fim
+        0 - Input 
+            0 - Input LSTM para cada empresa ##ÍNDICE DE EMPRESA
+                NpArray de tamanho (1,5,1)
+            1 - Valores em lista da wallet ##ÍNDICE DE EMPRESA
+        1 - Output sem rewards aplicados
+        2 - Dicionários para cada empresa
+            Transaction - Letra da transação (B, S, H, S*H)
+            Transaction_Amount - Quantia da transação EM QUANTIDADE DE STOCK
+            Reward - reward do Q value a ajustar
+            Reward_Check - peso de reward a dar (B- = a numero de açoes compradas, S- É logo atualizado, outros binario)
         '''
         for i in range(len(results)):
-            decision = np.argmax(results[i])
-            if decision == 0:
-                self.buy(list(self.wallet.keys())[i], 1) #AMOUNT AGORA É 1
-                self.history[-1][3][i] = ("B", 1)
-            elif decision == 1 and list(self.wallet.values())[i][1] > 0: #aqui podera ser quando vende menos do que tem
-                self.sell(list(self.wallet.keys())[i], self.wallet[list(self.wallet.keys())[i]][1]) # AMOUNT AGORA É TUDO
-                self.history[-1][3][i] = ("S", self.wallet[list(self.wallet.keys())[i]][1])
-                self.update_rewards()
-            elif decision == 1 and list(self.wallet.values())[i][1] == 0: #aqui podera ser quando vende mais do que tem
-                self.history[-1][3][i] = ("S*H", 0)
-            else:
-                self.history[-1][3][i] = ("H", 0)
+            company = list(self.wallet.keys())[i]
 
-    def update_rewards(self):
-        for i in range(len(self.wallet)):
-            sell_amount = self.history[-1][3][i][1]
-            sell_price = self.get_sell_price(self.history[-1][1][0][i], False)
-            self.history[-1][4][i][1] += (self.history[-1][3][i][1]/self.history[-1][1][1][i][1])*(sell_price - self.history[-1][1][1][i][0])/sell_price
-            #As que vendeu sobre
-            for j in range(2,len(self.history)-1): #self.history[-1] é a ultima venda que desencadeou tudo isto
-                if self.history[-j][3][i][0] == "B" and sell_amount > 0:
-                    self.history[-j][4][i][0] += (min(self.history[-j][3][i][1], sell_amount)/self.history[-j][1][1][i][1])*(sell_price - self.history[-j][1][1][i][0])/sell_price
-                    #Lucro relativo vezes quantas açoes comprou sobre todas das que vendeu
-                    sell_amount -= self.history[-j][1][1][i][1]
-                elif self.history[-j][3][i][0] == "H" and sell_amount > 0:
-                    self.history[-j][4][i][2] = self.hold_reward/((1+self.hold_periodic_decay)**(j-1))
-                elif self.history[-j][3][i][0] == "S*H" and sell_amount > 0:
-                    self.history[-j][4][i][2] = self.hold_reward/((1+self.hold_periodic_decay)**(j-1))
-                    self.history[-j][4][i][1] -= self.forbidden_sell_punishment
-                elif self.history[-j][3][i][0] == "S" and sell_amount > 0:
-                    continue
-                elif self.history[-j][3][i][0] == "S" and sell_amount <= 0:
-                    break
-        #APENAS PODEMOS TREINAR O MODELO QUANDO TODOS OS INTERVALOS TIVEREM SELL_AMOUNT = SOMATORIO DE STOCKS VENDIDAS PARA TRÁS
-        #OU SEJA QUANDO TODAS AS EMPRESAS TIVEREM TODAS AS STOCKS (history[-1][1][i][1]) A 0 AO MESMO TEMPO
+            if np.any(results[i]):
+                decision = np.argmax(results[i])
+            else: ## se ta tudo 0 entao faz isto
+                decision = np.random.choice([1,2,3])
+            #decision_amount = self.calculate_amount() #etc com softmaxes e uma quantidade maxima etc etc
+            if decision == 0:
+                self.buy(company, 1) #AMOUNT AGORA É 1
+                self.history[t][2][company]["Transaction"] = "B"
+                self.history[t][2][company]["Transaction_Amount"] = 1 #again, amount
+            elif decision == 1 and self.wallet[company][1] > 0: #aqui podera ser min(tudo que tem, o que vende)
+                self.sell(company, self.wallet[company][1]) # AMOUNT AGORA É TUDO
+                self.history[t][2][company]["Transaction"] = "S"
+                self.history[t][2][company]["Transaction_Amount"] = self.wallet[company][1] #again, amount
+                self.update_rewards(company, t)
+            elif decision == 1 and self.wallet[company][1] == 0: #aqui podera ser quando vende mais do que tem
+                self.history[t][2][company]["Transaction"] = "S*H"
+            else:
+                self.history[t][2][company]["Transaction"] = "H"
+    def generate_historical_training_data(self, size=None, delete_history=False):
+        '''
+        :param size: Output size. At default None will go as far as history can go for all stocks with Reward_Check = 0
+        :param delete_history: Delete transactions transferred to output
+        :return: [input, output]
+
+        '''
+        output_values = {}
+        lil_key = {"B": 0, "S": 1, "S*H": 1, "H": 2}
+
+        for t in self.history.keys():
+            if not np.any([self.history[t][2][i]["Reward_Check"] for i in self.history.keys()]):
+                for company in self.wallet.keys():
+                    new_q_values = self.history[t][1]
+                    company_index = next(
+                        (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
+                    new_q_values[company_index][lil_key[self.history[t][2][company]["Transaction"]]] = new_q_values[company_index][lil_key[self.history[t][2][company]["Transaction"]]]*(1+self.learning_rate) + self.learning_rate*(self.history[t][2][company]["Reward"])
+                output_values[t] = new_q_values
+
+
+        input, output = [], []
+        for t in output_values.keys():
+            input.append(output_values[t])
+            output.append(self.history[t][0])
+            if delete_history:
+                self.history.pop(t)
+
+        return np.concatenate(input), np.concatenate(output)
+
+    def update_rewards(self, company, update_time):
+        '''
+        Modifies rewards in history
+        ONLY AFTER A SALE
+        :param company: Company which just sold
+        :param update_time: Time at which the company's transaction was taken place in
+        :return:
+        '''
+        if self.history[update_time][2][company]["Transaction"] != "S":
+            raise Exception("Update_rewards mandado quando não venda")
+        company_index = next((i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
+        sell_price = self.get_sell_price(self.history[update_time][0][0][company_index], True)
+        self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0])/sell_price)*(self.history[update_time][2][company]["Transaction_Amount"]/(self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
+        self.history[update_time][2][company]["Reward_Check"] = 0
+        reward_power = self.history[update_time][2][company]["Transaction_Amount"]
+        for t in self.history.keys(): #Temos de assumir que isto vai de mais velho pra mais novo
+            if t < datetime.timedelta(0) and reward_power > 0:
+
+                ## BUY
+                if self.history[t][2][company]["Transaction"] == "B" and self.history[t][2][company]["Reward_Check"] > 0:
+                    buy_price = self.get_buy_price(self.history[t][0][0][company_index], True)
+                    #Reward de buy = fraçao de lucro * fraçao de stocks compradas/stocks vendidas no futuro * min(1, reward_power/reward_check)
+
+                    self.history[t][2][company]["Reward"] += ((sell_price - buy_price)/sell_price)*(self.history[t][2][company]["Transaction_Amount"]/self.history[update_time][2][company]["Transaction_Amount"]) * min(1, reward_power/self.history[t][2][company]["Reward_Check"])
+                    reward_power_old = reward_power
+                    reward_power = max(reward_power - self.history[t][2][company]["Reward_Check"], 0)
+                    self.history[t][2][company]["Reward_Check"] = max(self.history[t][2][company]["Reward_Check"] -reward_power_old, 0)
+                ## HOLD
+                elif self.history[t][2][company]["Transaction"] == "H" and self.history[t][2][company]["Reward_Check"] > 0:
+                    self.history[t][2][company]["Reward"] = self.hold_reward
+                    self.history[t][2][company]["Reward_Check"] = 0
+                ## SELL PROIBIDO FORÇADO A HOLD
+                elif self.history[t][2][company]["Transaction"] == "S*H" and self.history[t][2][company]["Reward_Check"] > 0:
+                    self.history[t][2][company]["Reward"] = 0 #ya pq nao pode isso é tau tau
+                    self.history[t][2][company]["Reward_Check"] = 0
+
+
 
     #CRIAR FUNÇAO QUE PEGA NO HISTORICO COMPLETO COM A CONDIÇAO AQUI EM CIMA E FAZ OS UPDATED_Q_VALUES todo
     def create_model(self, stock_correlation_sizes=[300, 200, 100], wallet_correlation_sizes=[50, 30, 10],
@@ -175,14 +281,14 @@ class Trader:
             for layer in intermediate_layers:
                 decision_boy = Concatenate(axis=1)(layer)
                 for size in decision_sizes:
-                    decision_boy = Dense(size, activation="linear")(decision_boy)
+                    decision_boy = Dense(size, activation="relu")(decision_boy)
                 decision_boy = Dense(3)(decision_boy)
                 outputs.append(decision_boy)
         else:
             intermediate_layers = [Flatten()(wallet_boy)] + [Flatten()(big_boy)]
             decision_boy = Concatenate(axis=1)(intermediate_layers)
             for size in decision_sizes:
-                decision_boy = Dense(size, activation="linear")(decision_boy)
+                decision_boy = Dense(size, activation="relu")(decision_boy)
             decision_boy = Dense(3)(decision_boy)
             outputs.append(decision_boy)
 
