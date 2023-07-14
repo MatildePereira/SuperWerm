@@ -1,10 +1,12 @@
 import datetime
+import time
 
 import yfinance as yf
 import numpy as np
 from keras.layers import BatchNormalization, LSTM, Dense, Dropout, Input, Concatenate, Flatten
 from keras.models import Model
 from keras.optimizers import Adam
+from dateutil.relativedelta import relativedelta
 import tensorflow
 '''             ,\
              \\\,_
@@ -17,7 +19,7 @@ jgs    `-----` `--`
 '''
 class Trader:
     def __init__(self, model, init_balance=100, stock_history=[], companies=['GOOG', 'AAPL'],
-                 interval="1h", buy_tax=0.06, timesteps=10, batch_size=6, pessimism_factor=0.03, hold_reward=0.05, learning_rate=0.0001):
+                 interval="1h", buy_tax=0.06, timesteps=10, batch_size=6, pessimism_factor=0.03, hold_reward=0.05, learning_rate=0.0001, q_learning_rate=0.1):
         self.init_balance = init_balance
         self.balance = init_balance
         self.model = model
@@ -35,8 +37,10 @@ class Trader:
         self.pessimism_factor = pessimism_factor
         self.hold_reward = hold_reward
         self.learning_rate = learning_rate
+        self.q_learning_rate = q_learning_rate
        # self.history = []
         self.history = {}
+        self.now = datetime.datetime.now()
     def get_buy_price(self,stock_data, isInputData=False):
         if not isInputData:
             return (stock_data['High'].values[0] + stock_data['Low'].values[0])*(1+self.pessimism_factor)*(1+self.buy_tax)/2
@@ -53,7 +57,7 @@ class Trader:
         :param amount: quantity of stocks to buy
         :void
         """
-        stock_data = self.get_stock_data(company)
+        stock_data = self.get_stock_data()[company]
         buy_price = self.get_buy_price(stock_data)
         self.wallet[company][0] = (self.wallet[company][0]*self.wallet[company][1] + buy_price*amount)/(amount + self.wallet[company][1]) #Novo preço médio pelo que trocou
         self.wallet[company][1] += amount
@@ -65,19 +69,47 @@ class Trader:
         :param amount: quantity of stocks to sell
         :void
         """
-        stock_data = self.get_stock_data(company)
+        stock_data = self.get_stock_data()[company]
         sell_price = self.get_sell_price(stock_data)
         self.wallet[company][1] -= amount
         self.balance += sell_price*amount
 
-    def get_stock_data(self, period="immediate"):
+    def get_stock_data(self, immediately=True, points=-1, max_margin=2, real_time=False):
+        '''
+        Saca os dados de stocks das empresas dele
+        ALGUNS AVISOS SOBRE O YAHOO FINANCE:
+            1. Prazo de 30 dias sob atual para dados de 1m
+            2. Só 7 dias de dados de 1m é permitido
+        :param immediately: Se é apenas o 1 ponto mais próximo da data atual do trader
+        :param points: Número de pontos de dados desejados (equivalente a linhas de ações)
+        :param max_margin: Margem em meses de onde tirar esses pontos
+        :return: dicionário pra cada empresa com dataframes
+        '''
+
         hist = {}
+        end_time = self.now.strftime('%Y-%m-%d')
+
+        #todo:: tf.Ticker() aceita como argumento uma lista de tickers, pode ser mais rapido que o loop mas nao me apetece ver desta merda
+        #fixme ESTA MERDA NAO TA A IR AO INSTANTE CERTO
         for company in self.wallet.keys():
             comp = yf.Ticker(company)
-            if (period != "immediate"):
-                hist[company] = comp.history(period=period, interval=self.interval)
-            else:
-                hist[company] = comp.history(period="1w", interval="1m").tail(1)
+            if immediately:
+                start_time = (self.now - relativedelta(days=6)).strftime('%Y-%m-%d')
+
+                #hist[company] = comp.history(period="1w", interval="1m").tail(1)
+                if real_time:
+                    hist[company] = comp.history(start=start_time, interval="1m", end=end_time).tail(1)
+                else:
+                    #fixme aqui dá merda
+                    hist[company] = comp.history(start=start_time, interval=self.interval, end=end_time)[self.now]
+
+            if (not immediately) or (points > 1):
+                start_time = (self.now - relativedelta(months=max_margin)).strftime('%Y-%m-%d')
+
+                #hist[company] = comp.history(period=period, interval=self.interval)
+                hist[company] = comp.history(start=start_time, interval=self.interval, end=end_time).tail(points)
+
+
         return hist
 
     def prepare_stock_data(self, received_data, size=1):
@@ -113,18 +145,11 @@ class Trader:
     def decide_transaction(self):
         '''
         Aqui ele decide o que fazer, automaticamente ir buscando os dados mais recentes
-
-        :return:
+        :return: teu cu
         '''
-        data = self.get_stock_data("1mo")
+        data = self.get_stock_data(points=self.timesteps)
         input = self.prepare_stock_data(data)
-
-
         results = self.model.predict(input)
-
-        # D E B U G
-        #results = np.zeros((2, 3))
-
         '''
         Results hopefully terá as dimensões (índice de empresa, índice de transação)
         '''
@@ -134,13 +159,13 @@ class Trader:
         1 - S - SELL
         2 - H - HOLD
         '''
-        t = data[list(self.wallet.keys())[-1]].index[-1] # Isto devia ser a ultima data
+        t = data[list(self.wallet.keys())[-1]].index[-1] # Isto devia ser a ultima data com dados
 
         for i in range(len(data.keys())):
             if data[list(self.wallet.keys())[i]].index[-1] != t:
                 raise Exception ("Date is not the same in companies")
 
-        self.history[t] = [input, results, dict(zip(list(self.wallet.keys()), [dict(zip(["Transaction","Transaction_amount","Reward","Reward_Check"],["N", 0, 0, 1])) for i in range(len(self.wallet.keys()))]))]
+        self.history[t] = [input, results, dict(zip(list(self.wallet.keys()), [dict(zip(["Transaction","Transaction_Amount","Reward","Reward_Check"],["N", 0, 0, 1])) for i in range(len(self.wallet.keys()))]))]
         '''
         0 - Input 
             0 - Input LSTM para cada empresa ##ÍNDICE DE EMPRESA
@@ -165,6 +190,7 @@ class Trader:
                 self.buy(company, 1) #AMOUNT AGORA É 1
                 self.history[t][2][company]["Transaction"] = "B"
                 self.history[t][2][company]["Transaction_Amount"] = 1 #again, amount
+                self.history[t][2][company]["Reward_Check"] = 1 #again, amount
             elif decision == 1 and self.wallet[company][1] > 0: #aqui podera ser min(tudo que tem, o que vende)
                 self.sell(company, self.wallet[company][1]) # AMOUNT AGORA É TUDO
                 self.history[t][2][company]["Transaction"] = "S"
@@ -174,6 +200,36 @@ class Trader:
                 self.history[t][2][company]["Transaction"] = "S*H"
             else:
                 self.history[t][2][company]["Transaction"] = "H"
+        self.update_time()
+    def update_time(self, real_time=False, wait_fraction=0.2):
+        '''
+        Atualiza o self.now
+
+        :param real_time: Tenta sempre chegar ao ponto mais próximo do atual
+        :param wait_interval: Fração do tempo de período de trading que espera até haver dados novos, apenas quando em real time
+        :return:
+        '''
+        comp = yf.Ticker(list(self.wallet.keys())[-1])
+        time_table = {'s': 1, 'm': 60, 'h': 3600, 'd': 3600 * 25}
+        time_sleep_in_seconds = int(int(self.interval[:-1]) * wait_fraction * time_table[self.interval[-1]])
+
+        if not real_time:
+            t = list(self.history.keys())[-1] + relativedelta(seconds=int(time_sleep_in_seconds/wait_fraction))
+            data = comp.history(start=self.now.strftime('%Y-%m-%d'), end=(self.now + relativedelta(days=6)).strftime('%Y-%m-%d'), interval=self.interval)
+            while t not in data.index:
+                t += relativedelta(seconds=int(time_sleep_in_seconds/wait_fraction))
+                if t > data.index[-1]:
+                    raise Exception("Hora descincronizada: " +self.now+ " com hora maxima de resoluçao "+data.index[-1])
+            self.now = t
+        else:
+            while data.index[-1] in self.history.keys():
+                # Todo: Sim isto usa time.sleep e não sei se é muito bom
+                time.sleep(time_sleep_in_seconds)
+                start = (datetime.datetime.now() -relativedelta(days=6))
+                end = datetime.datetime.now()
+                data = comp.history(start=start.strftime('%Y-%m-%d'), interval=self.interval, end=end.strftime('%Y-%m-%d')).tail(1)
+            self.now = data.index[-1]
+
     def generate_historical_training_data(self, size=None, delete_history=False):
         '''
         :param size: Output size. At default None will go as far as history can go for all stocks with Reward_Check = 0
@@ -190,7 +246,7 @@ class Trader:
                     new_q_values = self.history[t][1]
                     company_index = next(
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
-                    new_q_values[company_index][lil_key[self.history[t][2][company]["Transaction"]]] = new_q_values[company_index][lil_key[self.history[t][2][company]["Transaction"]]]*(1+self.learning_rate) + self.learning_rate*(self.history[t][2][company]["Reward"])
+                    new_q_values[company_index][lil_key[self.history[t][2][company]["Transaction"]]] = new_q_values[company_index][lil_key[self.history[t][2][company]["Transaction"]]]*(1+self.q_learning_rate) + self.q_learning_rate*max(self.history[t][2][company]["Reward"], 0)
                 output_values[t] = new_q_values
 
 
@@ -214,16 +270,16 @@ class Trader:
         if self.history[update_time][2][company]["Transaction"] != "S":
             raise Exception("Update_rewards mandado quando não venda")
         company_index = next((i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
-        sell_price = self.get_sell_price(self.history[update_time][0][0][company_index], True)
+        sell_price = self.get_sell_price(self.history[update_time][0][company_index], True)
         self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0])/sell_price)*(self.history[update_time][2][company]["Transaction_Amount"]/(self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
         self.history[update_time][2][company]["Reward_Check"] = 0
         reward_power = self.history[update_time][2][company]["Transaction_Amount"]
         for t in self.history.keys(): #Temos de assumir que isto vai de mais velho pra mais novo
-            if t < datetime.timedelta(0) and reward_power > 0:
+            if t - update_time < datetime.timedelta(0) and reward_power > 0:
 
                 ## BUY
                 if self.history[t][2][company]["Transaction"] == "B" and self.history[t][2][company]["Reward_Check"] > 0:
-                    buy_price = self.get_buy_price(self.history[t][0][0][company_index], True)
+                    buy_price = self.get_buy_price(self.history[t][0][company_index], True)
                     #Reward de buy = fraçao de lucro * fraçao de stocks compradas/stocks vendidas no futuro * min(1, reward_power/reward_check)
 
                     self.history[t][2][company]["Reward"] += ((sell_price - buy_price)/sell_price)*(self.history[t][2][company]["Transaction_Amount"]/self.history[update_time][2][company]["Transaction_Amount"]) * min(1, reward_power/self.history[t][2][company]["Reward_Check"])

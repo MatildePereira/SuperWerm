@@ -2,14 +2,16 @@ from trader import Trader
 import numpy as np
 import datetime
 import tensorflow as tf
-
+import random
+from dateutil.relativedelta import relativedelta
+import pandas as pd
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     trader = Trader(None, companies=["INTC", "GOOG"])
-    data = trader.get_stock_data("1mo")
+    trader.now = datetime.date(2023,6,20)
+    data = trader.get_stock_data(immediately=False, points=3)
     trader.create_model()
-    input = trader.prepare_stock_data(data, 1)
-    print(input)
-    print(trader.model.predict(input))
-
+    for i in range(3):
+        trader.decide_transaction()
+        print(trader.now)
     # See PyCharm help at https://www.jetbrains.com/help/pycharm/
