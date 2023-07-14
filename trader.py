@@ -8,6 +8,7 @@ from keras.models import Model
 from keras.optimizers import Adam
 from dateutil.relativedelta import relativedelta
 import tensorflow
+import pytz
 '''             ,\
              \\\,_
               \` ,\
@@ -19,7 +20,7 @@ jgs    `-----` `--`
 '''
 class Trader:
     def __init__(self, model, init_balance=100, stock_history=[], companies=['GOOG', 'AAPL'],
-                 interval="1h", buy_tax=0.06, timesteps=10, batch_size=6, pessimism_factor=0.03, hold_reward=0.05, learning_rate=0.0001, q_learning_rate=0.1):
+                 interval="1h", buy_tax=0.06, timesteps=10, batch_size=6, pessimism_factor=0.03, hold_reward=0.05, learning_rate=0.0001, q_learning_rate=0.1, real_time=False):
         self.init_balance = init_balance
         self.balance = init_balance
         self.model = model
@@ -38,9 +39,11 @@ class Trader:
         self.hold_reward = hold_reward
         self.learning_rate = learning_rate
         self.q_learning_rate = q_learning_rate
-       # self.history = []
         self.history = {}
+        self.real_time = real_time
         self.now = datetime.datetime.now()
+        if not self.real_time:
+            self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)
     def get_buy_price(self,stock_data, isInputData=False):
         if not isInputData:
             return (stock_data['High'].values[0] + stock_data['Low'].values[0])*(1+self.pessimism_factor)*(1+self.buy_tax)/2
@@ -74,13 +77,13 @@ class Trader:
         self.wallet[company][1] -= amount
         self.balance += sell_price*amount
 
-    def get_stock_data(self, immediately=True, points=-1, max_margin=2, real_time=False):
+    #def get_stock_data(self, immediately=True, points=1, max_margin=2, real_time=False):
+    def get_stock_data(self, points=1, max_margin=2, real_time=False):
         '''
         Saca os dados de stocks das empresas dele
         ALGUNS AVISOS SOBRE O YAHOO FINANCE:
             1. Prazo de 30 dias sob atual para dados de 1m
             2. Só 7 dias de dados de 1m é permitido
-        :param immediately: Se é apenas o 1 ponto mais próximo da data atual do trader
         :param points: Número de pontos de dados desejados (equivalente a linhas de ações)
         :param max_margin: Margem em meses de onde tirar esses pontos
         :return: dicionário pra cada empresa com dataframes
@@ -93,20 +96,16 @@ class Trader:
         #fixme ESTA MERDA NAO TA A IR AO INSTANTE CERTO
         for company in self.wallet.keys():
             comp = yf.Ticker(company)
-            if immediately:
+            #if immediately:
+            if self.real_time:
                 start_time = (self.now - relativedelta(days=6)).strftime('%Y-%m-%d')
 
-                #hist[company] = comp.history(period="1w", interval="1m").tail(1)
-                if real_time:
-                    hist[company] = comp.history(start=start_time, interval="1m", end=end_time).tail(1)
-                else:
-                    #fixme aqui dá merda
-                    hist[company] = comp.history(start=start_time, interval=self.interval, end=end_time)[self.now]
+                #hist[company] = comp.history(start=start_time, interval="1m", end=end_time).tail(1)
+                hist[company] = comp.history(start=start_time, interval="1m").tail(1)
 
-            if (not immediately) or (points > 1):
+            if (not self.real_time) or (points > 1):
                 start_time = (self.now - relativedelta(months=max_margin)).strftime('%Y-%m-%d')
-
-                #hist[company] = comp.history(period=period, interval=self.interval)
+                #fixme: end_time é só dia portanto ele nao reconhece e pode repetir e override o histórico. Se calhar tentar 1 dia a mais?
                 hist[company] = comp.history(start=start_time, interval=self.interval, end=end_time).tail(points)
 
 
@@ -213,13 +212,16 @@ class Trader:
         time_table = {'s': 1, 'm': 60, 'h': 3600, 'd': 3600 * 25}
         time_sleep_in_seconds = int(int(self.interval[:-1]) * wait_fraction * time_table[self.interval[-1]])
 
+        utc = pytz.UTC
+
         if not real_time:
-            t = list(self.history.keys())[-1] + relativedelta(seconds=int(time_sleep_in_seconds/wait_fraction))
+            #t = list(self.history.keys())[-1] + relativedelta(seconds=int(time_sleep_in_seconds/wait_fraction))
+            t = self.now + relativedelta(seconds=int(time_sleep_in_seconds/wait_fraction))
             data = comp.history(start=self.now.strftime('%Y-%m-%d'), end=(self.now + relativedelta(days=6)).strftime('%Y-%m-%d'), interval=self.interval)
             while t not in data.index:
                 t += relativedelta(seconds=int(time_sleep_in_seconds/wait_fraction))
-                if t > data.index[-1]:
-                    raise Exception("Hora descincronizada: " +self.now+ " com hora maxima de resoluçao "+data.index[-1])
+                if t.replace(tzinfo=utc) > data.index[-1].replace(tzinfo=utc):
+                    raise Exception("Hora dessincronizada: " +str(self.now)+ " com hora maxima de resoluçao "+str(data.index[-1]))
             self.now = t
         else:
             while data.index[-1] in self.history.keys():
@@ -297,7 +299,7 @@ class Trader:
 
 
 
-    #CRIAR FUNÇAO QUE PEGA NO HISTORICO COMPLETO COM A CONDIÇAO AQUI EM CIMA E FAZ OS UPDATED_Q_VALUES todo
+    #CRIAR FUNÇAO QUE PEGA NO HISTORICO COMPLETO COM A CONDIÇAO AQUI EM CIMA E FAZ OS UPDATED_Q_VALUES todos
     def create_model(self, stock_correlation_sizes=[300, 200, 100], wallet_correlation_sizes=[50, 30, 10],
                      prediction_sizes=[200, 100, 100], decision_sizes=[200, 100]):
         inputs = []
@@ -338,14 +340,14 @@ class Trader:
                 decision_boy = Concatenate(axis=1)(layer)
                 for size in decision_sizes:
                     decision_boy = Dense(size, activation="relu")(decision_boy)
-                decision_boy = Dense(3)(decision_boy)
+                decision_boy = Dense(3, activation="relu")(decision_boy)
                 outputs.append(decision_boy)
         else:
             intermediate_layers = [Flatten()(wallet_boy)] + [Flatten()(big_boy)]
             decision_boy = Concatenate(axis=1)(intermediate_layers)
             for size in decision_sizes:
                 decision_boy = Dense(size, activation="relu")(decision_boy)
-            decision_boy = Dense(3)(decision_boy)
+            decision_boy = Dense(3, activation="relu")(decision_boy)
             outputs.append(decision_boy)
 
         self.model = Model(inputs=inputs + [input2], outputs=outputs)

@@ -8,10 +8,11 @@ import pandas as pd
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     trader = Trader(None, companies=["INTC", "GOOG"])
-    trader.now = datetime.date(2023,6,20)
-    data = trader.get_stock_data(immediately=False, points=3)
     trader.create_model()
-    for i in range(3):
-        trader.decide_transaction()
+    #trader.now = trader.get_stock_data(immediately=False)["INTC"].index[0] - relativedelta(days=60)
+    for i in range(5):
+        print(trader.get_stock_data())
         print(trader.now)
+        trader.update_time()
+
     # See PyCharm help at https://www.jetbrains.com/help/pycharm/
