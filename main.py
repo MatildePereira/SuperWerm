@@ -11,6 +11,8 @@ if __name__ == '__main__':
     #trader.create_model()
     #trader.now = trader.get_stock_data(immediately=False)["INTC"].index[0] - relativedelta(days=60)
     data = trader.get_stock_data(points=30)
+    print(data)
+
 
 
 

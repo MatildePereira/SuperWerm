@@ -43,7 +43,7 @@ class Trader:
         self.history = {}
         self.real_time = real_time
         #self.now = datetime.datetime.strptime('2023-5-12 10:30:00', '%Y-%m-%d %H:%M:%S')
-        self.now = pd.Timestamp('2023-07-14 00:00:00-0400', tz='America/New_York')
+        self.now = pd.Timestamp('2023-07-12 11:00:00-0400', tz='America/New_York')
         #if not self.real_time:
          #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
 
@@ -118,18 +118,10 @@ class Trader:
                 #  calhar tentar 1 dia a mais?
                 bloop = comp.history(start=start_time, interval=self.interval, end=end_time)
 
+                print(self.now)
+
                 utc = pytz.UTC
-                hist[company] = pd.DataFrame()
-
-                for t in np.flip(list(bloop.index)):
-                    if t.replace(tzinfo=utc) <= self.now.replace(tzinfo=utc):
-                        key = datetime.datetime.strftime(t, "%Y-%m-%d %H:%M:%S") + "-04:00"
-                        print(bloop.index[-10])
-                        hist[company][t] = bloop[t]
-                    if len(hist[company]) == points:
-                        break
-
-
+                hist[company] = bloop.loc[(bloop.index <= self.now)]
 
         return hist
 
