@@ -43,7 +43,7 @@ class Trader:
         self.history = {}
         self.real_time = real_time
         #self.now = datetime.datetime.strptime('2023-5-12 10:30:00', '%Y-%m-%d %H:%M:%S')
-        self.now = pd.Timestamp('2023-07-12 11:00:00-0400', tz='America/New_York')
+        self.now = pd.Timestamp('2023-06-15 11:30:00-0400', tz='America/New_York')
         #if not self.real_time:
          #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
 
