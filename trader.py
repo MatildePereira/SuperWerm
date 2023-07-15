@@ -42,10 +42,10 @@ class Trader:
         self.q_learning_rate = q_learning_rate
         self.history = {}
         self.real_time = real_time
-        self.now = datetime.datetime.now()
-        if not self.real_time:
-            self.now -= relativedelta(days=60)
-            self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
+        #self.now = datetime.datetime.strptime('2023-5-12 10:30:00', '%Y-%m-%d %H:%M:%S')
+        self.now = pd.Timestamp('2023-07-14 00:00:00-0400', tz='America/New_York')
+        #if not self.real_time:
+         #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
 
     def get_buy_price(self, stock_data, is_input_data=False):
         if not is_input_data:
@@ -123,7 +123,9 @@ class Trader:
 
                 for t in np.flip(list(bloop.index)):
                     if t.replace(tzinfo=utc) <= self.now.replace(tzinfo=utc):
-                        hist[company][t] = t
+                        key = datetime.datetime.strftime(t, "%Y-%m-%d %H:%M:%S") + "-04:00"
+                        print(bloop.index[-10])
+                        hist[company][t] = bloop[t]
                     if len(hist[company]) == points:
                         break
 
