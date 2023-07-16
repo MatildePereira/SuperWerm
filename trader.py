@@ -4,11 +4,11 @@ import time
 import pandas as pd
 import yfinance as yf
 import numpy as np
+import keras
 from keras.layers import BatchNormalization, LSTM, Dense, Dropout, Input, Concatenate, Flatten
 from keras.models import Model
 from keras.optimizers import Adam
 from dateutil.relativedelta import relativedelta
-import tensorflow
 import pytz
 
 '''             ,\
@@ -23,17 +23,22 @@ jgs    `-----` `--`
 
 
 class Trader:
-    def __init__(self, model, init_balance=100, companies=['GOOG', 'AAPL'],
-                 interval="1h", buy_tax=0.06, timesteps=10, batch_size=6, pessimism_factor=0, hold_reward=0.05,
-                 learning_rate=0.0001, q_learning_rate=0.1, real_time=False):
+    def __init__(self, model_name="JAMEMB", init_balance=100, companies=['GOOG', 'AAPL'],
+                 interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
+                 hold_reward=0.05,
+                 learning_rate=0.0001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False):
+        self.validation_ratio = validation_ratio
         self.init_balance = init_balance
         self.balance = init_balance
-        self.model = model
+        self.model_name = model_name
+
+
         self.wallet = {}
         for i in companies:
             self.wallet[i] = [-1, 0]  # [valor medio investido em compras, quantidade de ações]
         self.interval = interval
         self.buy_tax = buy_tax
+        self.investible_fraction = investible_fraction
         self.timesteps = timesteps
         self.batch_size = batch_size
         self.pessimism_factor = pessimism_factor
@@ -42,10 +47,17 @@ class Trader:
         self.q_learning_rate = q_learning_rate
         self.history = {}
         self.real_time = real_time
-        #self.now = datetime.datetime.strptime('2023-5-12 10:30:00', '%Y-%m-%d %H:%M:%S')
-        self.now = pd.Timestamp('2023-06-15 11:30:00-0400', tz='America/New_York')
-        #if not self.real_time:
-         #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
+        # self.now = datetime.datetime.strptime('2023-5-12 10:30:00', '%Y-%m-%d %H:%M:%S')
+        self.now = pd.Timestamp('2023-01-01 09:30:00-0400', tz='America/New_York')
+        # if not self.real_time:
+        #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
+
+        try:
+            self.model = keras.models.load_model(model_name)
+            print("FETCHED MODEL: " + model_name)
+        except:
+            print("CANNOT FECH MODEL " + model_name, ", CREATING NEW...")
+            self.create_model()
 
     def get_buy_price(self, stock_data, is_input_data=False):
         if not is_input_data:
@@ -90,8 +102,8 @@ class Trader:
         """
         Saca os dados de ‘stocks’ das empresas dele
         ALGUNS AVISOS SOBRE O YAHOO FINANCE:
-            1. Prazo de 30 dias sob atual para dados de 1m
-            2. Só 7 dias de dados de 1m é permitido
+            1. Prazo de 30 dias sob atual para dados de 1 m
+            2. Só 7 dias de dados de 1 m é permitido
         :param points: Número de pontos de dados desejados (equivalente a linhas de ações)
         :param max_margin: Margem em meses de onde tirar esses pontos
         :return: dicionário para cada empresa com dataframes
@@ -110,18 +122,12 @@ class Trader:
                 start_time = (self.now - relativedelta(days=6)).strftime('%Y-%m-%d')
 
                 # hist[company] = comp.history(start=start_time, interval="1m", end=end_time).tail(1)
-                hist[company] = comp.history(start=start_time, interval="1m").tail(1)
+                hist[company] = comp.history(start=start_time, interval="1m").tail(points)
 
             if (not self.real_time) or (points > 1):
                 start_time = (self.now - relativedelta(months=max_margin)).strftime('%Y-%m-%d')
-                # fixme: end_time é só dia portanto ele nao reconhece e pode repetir e override o histórico. Se
-                #  calhar tentar 1 dia a mais?
                 bloop = comp.history(start=start_time, interval=self.interval, end=end_time)
-
-                print(self.now)
-
-                utc = pytz.UTC
-                hist[company] = bloop.loc[(bloop.index <= self.now)]
+                hist[company] = bloop.loc[(bloop.index <= self.now)].tail(points)
 
         return hist
 
@@ -134,6 +140,10 @@ class Trader:
         """
         data = {}  # Cada dado de cada empresa tem tamanho [timesteps, features]
 
+        #[tamanho, 2]
+        #[size, tamanho, 2]
+        #[3, 2]
+        #[1,3,2]
         for company in received_data.keys():
             hist = received_data[company][['Open', 'High', 'Low', 'Close', 'Volume']].values
             data[company] = []
@@ -147,10 +157,11 @@ class Trader:
         output_which_is_input = []
         for i in data.values():
             output_which_is_input.append(np.concatenate(i))
-            # wallet_history = [wallet for wallet in self.history.values()[-size:-1]] + [list(self.wallet.values())]
-            wallet_history = [wallet for wallet in self.history.values()[len(self.history.values()) - size:]] + [
-                list(self.wallet.values())]
-            output_which_is_input.append(np.concatenate(wallet_history))
+        # wallet_history = [wallet for wallet in self.history.values()[-size:-1]] + [list(self.wallet.values())]
+        wallet_history = [[input_data[0][1] for input_data in list(self.history.values())[len(self.history.values()) - size+1:]]] + [[
+                list(self.wallet.values())]]
+        wallet_history = list(filter(None, wallet_history))
+        output_which_is_input.append(np.concatenate(wallet_history))
         return output_which_is_input
 
     def decide_transaction(self):
@@ -198,16 +209,21 @@ class Trader:
                 decision = np.argmax(results[i])
             else:  # se ta tudo 0 entao faz isto
                 decision = np.random.choice([1, 2, 3])
-            # decision_amount = self.calculate_amount() #etc com softmaxes e uma quantidade maxima etc etc
+            softmax = lambda x, j: np.exp(x[j]) / sum(np.exp(x))
+
             if decision == 0:
+                amount = softmax(results[i], 0) * self.balance * self.investible_fraction / self.get_buy_price(
+                    data[company])
                 self.buy(company, 1)  # AMOUNT AGORA É 1
                 self.history[t][2][company]["Transaction"] = "B"
-                self.history[t][2][company]["Transaction_Amount"] = 1  # again, amount
-                self.history[t][2][company]["Reward_Check"] = 1  # again, amount
-            elif decision == 1 and self.wallet[company][1] > 0:  # aqui podera ser min(tudo que tem, o que vende)
-                self.sell(company, self.wallet[company][1])  # AMOUNT AGORA É TUDO
+                self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
+                self.history[t][2][company]["Reward_Check"] = amount  # again, amount
+            elif decision == 1 and self.wallet[company][1] > 0:
+                amount = softmax(results[i], 1) * self.wallet[company][1]
+
+                self.sell(company, amount)  # AMOUNT AGORA É TUDO
                 self.history[t][2][company]["Transaction"] = "S"
-                self.history[t][2][company]["Transaction_Amount"] = self.wallet[company][1]  # again, amount
+                self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
                 self.update_rewards(company, t)
             elif decision == 1 and self.wallet[company][1] == 0:  # aqui podera ser quando vende mais do que tem
                 self.history[t][2][company]["Transaction"] = "S*H"
@@ -219,7 +235,8 @@ class Trader:
         Atualiza o self.now
 
         :param real_time: Tenta sempre chegar ao ponto mais próximo do atual
-        :param wait_fraction: Fração do tempo de período de trading que espera até haver dados novos, apenas quando em real time
+        :param wait_fraction: Fração do tempo de
+        período de trading que espera até haver dados novos, apenas quando em real time
         :return:
         """
         comp = yf.Ticker(list(self.wallet.keys())[-1])
@@ -228,10 +245,12 @@ class Trader:
 
         utc = pytz.UTC
 
+        data = comp.history(start=self.now.strftime('%Y-%m-%d'),
+                            end=(self.now + relativedelta(days=6)).strftime('%Y-%m-%d'), interval=self.interval)
+
         if not real_time:
             t = self.now + relativedelta(seconds=time_sleep_in_seconds)
-            data = comp.history(start=self.now.strftime('%Y-%m-%d'),
-                                end=(self.now + relativedelta(days=6)).strftime('%Y-%m-%d'), interval=self.interval)
+
             while t not in data.index:
                 t += relativedelta(seconds=time_sleep_in_seconds)
                 if t.replace(tzinfo=utc) > data.index[-1].replace(tzinfo=utc):
@@ -252,14 +271,14 @@ class Trader:
         """
         :param size: Output size. At default None will go as far as history can go for all stocks with Reward_Check = 0
         :param delete_history: Delete transactions transferred to output
-        :return: [input, output]
+        :return: input, output
 
         """
         output_values = {}
         lil_key = {"B": 0, "S": 1, "S*H": 2, "H": 2}
         breh = 0
         for t in self.history.keys():
-            if not np.any([self.history[t][2][i]["Reward_Check"] for i in self.history.keys()]):
+            if not np.any([self.history[t][2][i]["Reward_Check"] for i in self.wallet.keys()]):
                 for company in self.wallet.keys():
                     new_q_values = self.history[t][1]
                     company_index = next(
@@ -284,6 +303,18 @@ class Trader:
 
         return np.concatenate(input), np.concatenate(output)
 
+    def check_history_for_trainable_data(self, size=60):
+        alguma_coisa_mais_mamalhuda = 0
+
+        for t in self.history.keys():
+            if not np.any([self.history[t][2][i]["Reward_Check"] for i in self.wallet.keys()]):
+                alguma_coisa_mais_mamalhuda += 1
+            else:
+                break
+            if alguma_coisa_mais_mamalhuda == size:
+                return True
+        return False
+
     def update_rewards(self, company, update_time):
         """
         Modifies rewards in history
@@ -298,7 +329,7 @@ class Trader:
         sell_price = self.get_sell_price(self.history[update_time][0][company_index], True)
         self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0]) / sell_price) * (
                 self.history[update_time][2][company]["Transaction_Amount"] / (
-                self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
+                    self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
         # NOTA: se isto for rodado enquanto self.wallet não é imediatamente depois da venda podemos fazer dos dados
         # de input do instante a seguir
         self.history[update_time][2][company]["Reward_Check"] = 0
@@ -307,7 +338,7 @@ class Trader:
             if t - update_time < datetime.timedelta(0) and reward_power > 0:
                 # BUY
                 if self.history[t][2][company]["Transaction"] == "B" and self.history[t][2][company][
-                    "Reward_Check"] > 0:
+                        "Reward_Check"] > 0:
                     buy_price = self.get_buy_price(self.history[t][0][company_index], True)
                     # Reward de buy = fraçao de lucro * fraçao de stocks compradas/stocks vendidas no futuro * min(1,
                     # reward_power/reward_check)
@@ -324,16 +355,21 @@ class Trader:
                         self.history[t][2][company]["Reward_Check"] - reward_power_old, 0)
                 # HOLD
                 elif self.history[t][2][company]["Transaction"] == "H" and self.history[t][2][company][
-                    "Reward_Check"] > 0:
+                        "Reward_Check"] > 0:
                     self.history[t][2][company]["Reward"] = self.hold_reward
                     self.history[t][2][company]["Reward_Check"] = 0
-                ## SELL PROIBIDO FORÇADO A HOLD
+                # SELL PROIBIDO FORÇADO A HOLD
                 elif self.history[t][2][company]["Transaction"] == "S*H" and self.history[t][2][company][
-                    "Reward_Check"] > 0:
+                        "Reward_Check"] > 0:
                     self.history[t][2][company]["Reward"] = 0  # ya pq nao pode isso é tau tau
                     self.history[t][2][company]["Reward_Check"] = 0
 
-    # CRIAR FUNÇAO QUE PEGA NO HISTORICO COMPLETO COM A CONDIÇAO AQUI EM CIMA E FAZ OS UPDATED_Q_VALUES todos
+    def train_model(self, size=None, epochs=3):
+        input_data, output_data = self.generate_historical_training_data(size=size, delete_history=True)
+        self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
+                       validation_ratio=self.validation_ratio)
+        self.model.save(self.model_name)
+
     def create_model(self, stock_correlation_sizes=[300, 200, 100], wallet_correlation_sizes=[50, 30, 10],
                      prediction_sizes=[200, 100, 100], decision_sizes=[200, 100]):
         inputs = []
@@ -359,11 +395,12 @@ class Trader:
             prediction_boys = [None for i in range(len(stock_inputs))]
             for i in range(len(stock_inputs)):
                 prediction_boys[i] = LSTM(units=prediction_sizes[0], return_sequences=True)(stock_inputs[
-                                                                                                i])  # prediction_boys[i] = LSTM(units=prediction_sizes[0], input_shape=(self.timesteps, 5))(inputs[i])
+                                                                                                i])
+                # prediction_boys[i] = LSTM(units=prediction_sizes[0], input_shape=(self.timesteps, 5))(inputs[i])
 
                 for size in prediction_sizes[1:-1]:
                     prediction_boys[i] = LSTM(units=size, return_sequences=True)(prediction_boys[i])
-                prediction_boys[i] = LSTM(units=size)(prediction_boys[i])
+                prediction_boys[i] = LSTM(units=prediction_sizes[-1])(prediction_boys[i])
 
             # intermediate_layers = [Flatten()(prediction_boy) for prediction_boy in prediction_boys] + [ Flatten()(
             # wallet_boy)] + [ Flatten()(big_boy)]
