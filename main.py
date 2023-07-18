@@ -12,9 +12,9 @@ def create_trader():
     return Trader("Richard Hammond", companies=["FDX", "EXPD", "LSTR"], init_balance=1000)
 
 
-
 if __name__ == '__main__':
     hammond = create_trader()
+    hammond.choose_at_random = True
     file = open("text.txt", "w")
 
     #trader.create_model()
@@ -23,13 +23,19 @@ if __name__ == '__main__':
 
     for i in range(500):
         hammond.decide_transaction()
-        file.write((hammond.now + relativedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"))
-        file.write(hammond.history.values()[-1][1])
-        file.write(hammond.wallet)
+        file.write((hammond.now + relativedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S") + "\n")
+        file.write("Balance: " + str(hammond.balance) + "\n")
+        file.write(np.array2string(np.array(list(hammond.history.values())[-1][1])) + "\n")
+        for company in list(hammond.history.values())[-1][2].keys():
+            file.write(list(hammond.history.values())[-1][2][company]["Transaction"] +"-"+str(list(hammond.history.values())[-1][2][company]["Transaction_Amount"]) + "\t")
+        file.write("\n")
+
+        file.write(np.array2string(np.array(hammond.wallet.values())) + "\n")
         if hammond.check_history_for_trainable_data():
             hammond.train_model(60)
-            file.write("#######HAMMOOOOND#######")
+            hammond.choose_at_random = False
+            file.write("#######HAMMOOOOND#######\n")
         hammond.update_time()
-        file.write("****************************************************")
+        file.write("****************************************************\n")
 
     # See PyCharm help at https://www.jetbrains.com/help/pycharm/

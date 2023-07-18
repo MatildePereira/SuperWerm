@@ -51,7 +51,7 @@ class Trader:
         self.now = pd.Timestamp('2023-01-01 09:30:00-0400', tz='America/New_York')
         # if not self.real_time:
         #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
-
+        self.choose_at_random = False
         try:
             self.model = keras.models.load_model(model_name)
             print("FETCHED MODEL: " + model_name)
@@ -205,30 +205,42 @@ class Trader:
         for i in range(len(results)):
             company = list(self.wallet.keys())[i]
 
-            if np.any(results[i]):
-                decision = np.argmax(results[i])
-            else:  # se ta tudo 0 entao faz isto
-                decision = np.random.choice([1, 2, 3])
+            if np.any(results[i][0]) and not self.choose_at_random:
+                decision = np.argmax(results[i][0])
+            else:
+                decision = np.random.choice([1, 2, 0])
             softmax = lambda x, j: np.exp(x[j]) / sum(np.exp(x))
 
             if decision == 0:
-                amount = softmax(results[i], 0) * self.balance * self.investible_fraction / self.get_buy_price(
+                buy_price = self.get_buy_price(
                     data[company])
-                self.buy(company, 1)  # AMOUNT AGORA É 1
-                self.history[t][2][company]["Transaction"] = "B"
-                self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
-                self.history[t][2][company]["Reward_Check"] = amount  # again, amount
+                amount = np.floor(softmax(results[i][0], 0) * self.balance * self.investible_fraction / buy_price)
+                if self.balance-buy_price > 0:
+                    amount = max(amount, 1)
+                    self.buy(company, amount)
+                    self.history[t][2][company]["Transaction"] = "B"
+                    self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
+                    self.history[t][2][company]["Reward_Check"] = amount  # again, amount
+                else: #Todo: adicionar um B*H ou eu vou me atirar de uma torre feita de estrume de mosca
+                    self.history[t][2][company]["Transaction"] = "H"
+                    self.history[t][2][company]["Reward"] = self.hold_reward  # todo decidir se fica assim
+                    self.history[t][2][company]["Reward_Check"] = 0
             elif decision == 1 and self.wallet[company][1] > 0:
-                amount = softmax(results[i], 1) * self.wallet[company][1]
-
-                self.sell(company, amount)  # AMOUNT AGORA É TUDO
+                amount = np.floor(softmax(results[i][0], 1) * self.wallet[company][1])
+                if self.choose_at_random: #Isto só é válido se as quantidades forem aproximadas
+                    amount = max(amount, 1.0)
+                self.sell(company, amount)
                 self.history[t][2][company]["Transaction"] = "S"
                 self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
                 self.update_rewards(company, t)
             elif decision == 1 and self.wallet[company][1] == 0:  # aqui podera ser quando vende mais do que tem
                 self.history[t][2][company]["Transaction"] = "S*H"
+                self.history[t][2][company]["Reward"] = self.hold_reward #todo decidir se fica assim
+                self.history[t][2][company]["Reward_Check"] = 0
             else:
                 self.history[t][2][company]["Transaction"] = "H"
+                self.history[t][2][company]["Reward"] = self.hold_reward #todo decidir se fica assim
+                self.history[t][2][company]["Reward_Check"] = 0
 
     def update_time(self, real_time=False, wait_fraction=0.2):
         """
