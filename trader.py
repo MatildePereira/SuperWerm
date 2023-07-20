@@ -26,7 +26,7 @@ class Trader:
     def __init__(self, model_name="JAMEMB", init_balance=100, companies=['GOOG', 'AAPL'],
                  interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
                  hold_reward=0.05,
-                 learning_rate=0.0001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False):
+                 learning_rate=0.00001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False):
         self.validation_ratio = validation_ratio
         self.init_balance = init_balance
         self.balance = init_balance
@@ -47,7 +47,7 @@ class Trader:
         self.history = {}
         self.real_time = real_time
         # self.now = datetime.datetime.strptime('2023-5-12 10:30:00', '%Y-%m-%d %H:%M:%S')
-        self.now = pd.Timestamp('2023-01-01 09:30:00-0400', tz='America/New_York')
+        self.now = pd.Timestamp('2022-01-01 09:30:00-0400', tz='America/New_York')
         # if not self.real_time:
         #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
         self.choose_at_random = False
@@ -193,7 +193,7 @@ class Trader:
         '''
         0 - Input 
             0 - Input LSTM para cada empresa ##ÍNDICE DE EMPRESA
-                NpArray de tamanho (1,5,1)
+                NpArray de tamanho #?eunaosei?#
             1 - Valores em lista da wallet ##ÍNDICE DE EMPRESA
         1 - Output sem rewards aplicados
         2 - Dicionários para cada empresa
@@ -306,21 +306,27 @@ class Trader:
                 break
 
         input, output = [], []
-        input_lstm = []
+        input_lstm = [[] for i in range(len(self.wallet.keys()))]
         input_wallet = []
         for t in output_values.keys():
             output.append(output_values[t])
-            input_lstm.append(self.history[t][0][0])
-            input_wallet.append(self.history[t][0][1])
+            for i in range(len(self.wallet.keys())):
+                input_lstm[i].append(self.history[t][0][i])
+            input_wallet.append(self.history[t][0][-1])
             # input.append(self.history[t][0])
             if delete_history:
                 self.history.pop(t)
 
-        concatenated_lstm = np.concatenate(input_lstm)
-        concatenated_wallet = np.concatenate(input_wallet)
-        concatenated_input = [concatenated_lstm, concatenated_wallet]
-        concatenated_output = np.concatenate(output)
+        concatenated_input = []
 
+        for bre in input_lstm:
+            concatenated_input.append(np.concatenate(bre))
+        concatenated_input.append(np.concatenate(input_wallet))
+
+        #concatenated_lstm = np.concatenate(input_lstm)
+        #concatenated_wallet = np.concatenate(input_wallet)
+        #concatenated_input = [concatenated_lstm, concatenated_wallet]
+        concatenated_output = np.concatenate(output)
         return concatenated_input, concatenated_output
 
     def check_history_for_trainable_data(self, size=60):
@@ -394,11 +400,11 @@ class Trader:
                      prediction_sizes=[200, 100, 100], decision_sizes=[200, 100]):
         inputs = []
         stock_inputs = []
-        input2 = Input(shape=(len(self.wallet.keys()), 2,), name="Wallet Input")
+        input2 = Input(shape=(len(self.wallet.keys()), 2,))
         wallet_input = BatchNormalization(synchronized=True)(input2)
 
         for i in range(len(self.wallet)):
-            inputs.append(Input(shape=(self.timesteps, 5,), name="Stock input " + str(i)))
+            inputs.append(Input(shape=(self.timesteps, 5,)))
             stock_inputs.append(BatchNormalization(synchronized=True)(inputs[i]))
         big_boy = Concatenate()(stock_inputs)
         for size in stock_correlation_sizes[:-1]:

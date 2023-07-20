@@ -20,6 +20,7 @@ if __name__ == '__main__':
     #trader.create_model()
     #trader.now = trader.get_stock_data()["INTC"].index[0] - relativedelta(days=60)
     #data = trader.get_stock_data(points=30)
+    meme = 4
 
     for i in range(500):
         hammond.decide_transaction()
@@ -33,8 +34,10 @@ if __name__ == '__main__':
         file.write(np.array2string(np.array(hammond.wallet.values())) + "\n")
         if hammond.check_history_for_trainable_data():
             hammond.train_model(60)
-            hammond.choose_at_random = False
+            meme -= 1
             file.write("#######HAMMOOOOND#######\n")
+        if meme == 0:
+            hammond.choose_at_random = False
         hammond.update_time()
         file.write("****************************************************\n")
 
