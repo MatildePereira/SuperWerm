@@ -14,15 +14,14 @@ def create_trader():
 
 if __name__ == '__main__':
     hammond = create_trader()
-    hammond.choose_at_random = True
+    hammond.random_choice_chance = 0.9
     file = open("text.txt", "w")
 
     #trader.create_model()
     #trader.now = trader.get_stock_data()["INTC"].index[0] - relativedelta(days=60)
     #data = trader.get_stock_data(points=30)
-    meme = 4
 
-    for i in range(500):
+    for i in range(10000):
         hammond.decide_transaction()
         file.write((hammond.now + relativedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S") + "\n")
         file.write("Balance: " + str(hammond.balance) + "\n")
@@ -34,10 +33,7 @@ if __name__ == '__main__':
         file.write(np.array2string(np.array(hammond.wallet.values())) + "\n")
         if hammond.check_history_for_trainable_data():
             hammond.train_model(60)
-            meme -= 1
-            file.write("#######HAMMOOOOND#######\n")
-        if meme == 0:
-            hammond.choose_at_random = False
+            hammond.random_choice_chance = max(hammond.random_choice_chance-0.2, 0)
         hammond.update_time()
         file.write("****************************************************\n")
 

@@ -26,7 +26,8 @@ class Trader:
     def __init__(self, model_name="JAMEMB", init_balance=100, companies=['GOOG', 'AAPL'],
                  interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
                  hold_reward=0.05,
-                 learning_rate=0.00001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False):
+                 learning_rate=0.00001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False,
+                 random_choice_chance=0):
         self.validation_ratio = validation_ratio
         self.init_balance = init_balance
         self.balance = init_balance
@@ -50,7 +51,7 @@ class Trader:
         self.now = pd.Timestamp('2022-01-01 09:30:00-0400', tz='America/New_York')
         # if not self.real_time:
         #   self.now = self.get_stock_data()['GOOG'].index[0] - relativedelta(days=60)  # TODO
-        self.choose_at_random = False
+        self.random_choice_chance = random_choice_chance
         try:
             self.model = keras.models.load_model(model_name)
             print("FETCHED MODEL: " + model_name)
@@ -205,7 +206,7 @@ class Trader:
         for i in range(len(results)):
             company = list(self.wallet.keys())[i]
 
-            if np.any(results[i][0]) and not self.choose_at_random:
+            if np.any(results[i][0]) and np.random.random() > self.random_choice_chance:
                 decision = np.argmax(results[i][0])
             else:
                 decision = np.random.choice([1, 2, 0])
@@ -227,8 +228,7 @@ class Trader:
                     self.history[t][2][company]["Reward_Check"] = 0
             elif decision == 1 and self.wallet[company][1] > 0:
                 amount = np.floor(softmax(results[i][0], 1) * self.wallet[company][1])
-                if self.choose_at_random:  # Isto só é válido se as quantidades forem aproximadas
-                    amount = max(amount, 1.0)
+                amount = max(amount, 1.0)
                 self.sell(company, amount)
                 self.history[t][2][company]["Transaction"] = "S"
                 self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
