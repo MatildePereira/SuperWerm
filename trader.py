@@ -129,7 +129,11 @@ class Trader:
                 bloop = comp.history(start=start_time, interval=self.interval, end=end_time)
                 hist[company] = bloop.loc[(bloop.index <= self.now)].tail(points)
 
-        return hist
+        if np.size(hist.values()) == 0:
+            time.sleep(3)
+            self.get_stock_data(points, max_margin)
+        else:
+            return hist
 
     def prepare_stock_data(self, received_data, size=1):
         """
