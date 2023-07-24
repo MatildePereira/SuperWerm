@@ -307,7 +307,12 @@ class Trader:
                                     1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company][
                             "Reward"], 0)
                     # todo: Ver se fazemos reward negativo ao S*H
+                    print("_______________________")
+                    print(self.history[t][1])
+                    print("********************")
+                    print(new_q_values)
                 output_values[t] = new_q_values
+
                 breh += 1
             if size is not None and breh == size:
                 break
@@ -318,7 +323,8 @@ class Trader:
         for t in output_values.keys():
             output.append(output_values[t])
             for i in range(len(self.wallet.keys())):
-                input_lstm[i].append(self.history[t][0][i])
+                #input_lstm[i].append(self.history[t][0][i])
+                input_lstm[i].append(np.array(self.history[t][0][i]))
             input_wallet.append(self.history[t][0][-1])
             # input.append(self.history[t][0])
             if delete_history:
@@ -339,10 +345,10 @@ class Trader:
         '''
         #return concatenated_input, concatenated_output
 
-        #fixme: Pelo amor de deus na merda foda-se
-        #Shape é suposto ser [[batch_size, dims], [batch_size, dims], etc]
-        input_shalbong = np.array(input_lstm + list(np.concatenate(input_wallet)))
-
+        #Todo: Ver se isto funciona afinal de tudo
+        for i in range(len(input_lstm)):
+            input_lstm[i] = np.concatenate(input_lstm[i])
+        input_shalbong = [input_lstm] + [np.concatenate(input_wallet)]
         return input_shalbong, np.array(output)
 
     def check_history_for_trainable_data(self, size=60):

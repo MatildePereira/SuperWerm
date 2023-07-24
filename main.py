@@ -10,7 +10,7 @@ import pandas as pd
 
 
 def create_trader():
-    return Trader("Richard Hammond", companies=["FDX", "EXPD", "LSTR"], init_balance=1000)
+    return Trader("Richard Hammond", companies=["FDX", "EXPD", "LSTR"], init_balance=1000, hold_reward=0.5)
 
 
 if __name__ == '__main__':
