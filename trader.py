@@ -25,7 +25,7 @@ jgs    `-----` `--`
 class Trader:
     def __init__(self, model_name="JAMEMB", init_balance=100, companies=['GOOG', 'AAPL'],
                  interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
-                 hold_reward=0.05,
+                 hold_reward=0.5,
                  learning_rate=0.00001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False,
                  random_choice_chance=0):
         self.validation_ratio = validation_ratio
@@ -114,7 +114,7 @@ class Trader:
 
         # todo:: tf.Ticker() aceita como argumento uma lista de tickers, pode ser mais rapido que o loop mas nao me
         #  apetece ver desta merda
-        # fixme ESTA MERDA NAO TA A IR AO INSTANTE CERTO
+
         for company in self.wallet.keys():
             comp = yf.Ticker(company)
             # if immediately:
@@ -129,9 +129,11 @@ class Trader:
                 bloop = comp.history(start=start_time, interval=self.interval, end=end_time)
                 hist[company] = bloop.loc[(bloop.index <= self.now)].tail(points)
 
+        #fixme: se uma ou duas etc das açoes nao tiverem dados mas as outras sim isto nao dispara mas da erro na mesma
         if np.size(hist.values()) == 0:
             time.sleep(3)
-            self.get_stock_data(points, max_margin)
+            print("No stock data found, trying again")
+            return self.get_stock_data(points, max_margin)
         else:
             return hist
 
@@ -176,7 +178,7 @@ class Trader:
         """
         data = self.get_stock_data(points=self.timesteps)
         input = self.prepare_stock_data(data)
-        results = self.model.predict(input)
+        results = self.model.predict(input, verbose=0)
         '''
         Results hopefully terá as dimensões (índice de empresa, índice de transação)
         '''
@@ -299,6 +301,7 @@ class Trader:
                     new_q_values = self.history[t][1]
                     company_index = next(
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
+
                     new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] = max(
                         new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] * (
                                     1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company][
@@ -309,7 +312,7 @@ class Trader:
             if size is not None and breh == size:
                 break
 
-        input, output = [], []
+        output = []
         input_lstm = [[] for i in range(len(self.wallet.keys()))]
         input_wallet = []
         for t in output_values.keys():
@@ -321,17 +324,26 @@ class Trader:
             if delete_history:
                 self.history.pop(t)
 
-        concatenated_input = []
 
+
+        '''
+        concatenated_input = []
         for bre in input_lstm:
             concatenated_input.append(np.concatenate(bre))
         concatenated_input.append(np.concatenate(input_wallet))
 
-        #concatenated_lstm = np.concatenate(input_lstm)
-        #concatenated_wallet = np.concatenate(input_wallet)
-        #concatenated_input = [concatenated_lstm, concatenated_wallet]
+        concatenated_lstm = np.concatenate(input_lstm)
+        concatenated_wallet = np.concatenate(input_wallet)
+        concatenated_input = [concatenated_lstm, concatenated_wallet]
         concatenated_output = np.concatenate(output)
-        return concatenated_input, concatenated_output
+        '''
+        #return concatenated_input, concatenated_output
+
+        #fixme: Pelo amor de deus na merda foda-se
+        #Shape é suposto ser [[batch_size, dims], [batch_size, dims], etc]
+        input_shalbong = np.array(input_lstm + list(np.concatenate(input_wallet)))
+
+        return input_shalbong, np.array(output)
 
     def check_history_for_trainable_data(self, size=60):
         alguma_coisa_mais_mamalhuda = 0

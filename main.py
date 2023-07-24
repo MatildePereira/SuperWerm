@@ -4,6 +4,7 @@ import datetime
 import tensorflow as tf
 import random
 from dateutil.relativedelta import relativedelta
+import random
 import pandas as pd
 # Press the green button in the gutter to run the script.
 
@@ -14,7 +15,9 @@ def create_trader():
 
 if __name__ == '__main__':
     hammond = create_trader()
-    hammond.random_choice_chance = 0.9
+    hammond.random_choice_chance = 1.0
+    hammond.now = pd.Timestamp(str(random.randint(2021,2022))+'-'+str(random.randint(5,12))+'-'+str(random.randint(5,12))+ ' 09:30:00-0400', tz='America/New_York')
+
     file = open("text.txt", "w")
 
     #trader.create_model()
@@ -33,7 +36,8 @@ if __name__ == '__main__':
         file.write(np.array2string(np.array(hammond.wallet.values())) + "\n")
         if hammond.check_history_for_trainable_data():
             hammond.train_model(60)
-            hammond.random_choice_chance = max(hammond.random_choice_chance-0.2, 0)
+            hammond.random_choice_chance = max(hammond.random_choice_chance-0.1, 0.1)
+            file.write("_*_*_*_*_*_*_*_TRAINED BOY_*_*_*_*_*_*_*_\n")
         hammond.update_time()
         file.write("****************************************************\n")
 
