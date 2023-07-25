@@ -25,7 +25,7 @@ jgs    `-----` `--`
 class Trader:
     def __init__(self, model_name="JAMEMB", init_balance=100, companies=['GOOG', 'AAPL'],
                  interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
-                 hold_reward=0.5,
+                 hold_reward=0.05,
                  learning_rate=0.00001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False,
                  random_choice_chance=0):
         self.validation_ratio = validation_ratio
@@ -204,7 +204,7 @@ class Trader:
             1 - Valores em lista da wallet ##ÍNDICE DE EMPRESA
         1 - Output sem rewards aplicados
         2 - Dicionários para cada empresa
-            Transaction - Letra da transação (B, S, H, S*H)
+            Transaction - Letra da transação (B, S, H, S*H, B*H)
             Transaction_Amount - Quantia da transação EM QUANTIDADE DE STOCK
             Reward - reward do Q value a ajustar
             Reward_Check - peso de reward a dar (B- = a numero de açoes compradas, S- É logo atualizado, outros binario)
@@ -228,13 +228,13 @@ class Trader:
                     self.history[t][2][company]["Transaction"] = "B"
                     self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
                     self.history[t][2][company]["Reward_Check"] = amount  # again, amount
-                else:  # Todo: adicionar um B*H ou eu vou me atirar de uma torre feita de estrume de mosca
-                    self.history[t][2][company]["Transaction"] = "H"
+                else:
+                    self.history[t][2][company]["Transaction"] = "B*H"
                     self.history[t][2][company]["Reward"] = self.hold_reward  # todo decidir se fica assim
                     self.history[t][2][company]["Reward_Check"] = 0
             elif decision == 1 and self.wallet[company][1] > 0:
                 amount = np.floor(softmax(results[i][0], 1) * self.wallet[company][1])
-                amount = max(amount, 1.0)
+                amount = max(amount, 1.0) #ATENÇÃO: SO É VÁLIDO SE COMPRAR EM INCREMENTOS DE 1 SENAO ELE VENDE MAIS DO QUE TEM
                 self.sell(company, amount)
                 self.history[t][2][company]["Transaction"] = "S"
                 self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
@@ -293,7 +293,7 @@ class Trader:
 
         """
         output_values = {}
-        lil_key = {"B": 0, "S": 1, "S*H": 2, "H": 2}
+        lil_key = {"B": 0, "S": 1, "S*H": 2, "B*H":2, "H": 2}
         breh = 0
         for t in self.history.keys():
             if not np.any([self.history[t][2][i]["Reward_Check"] for i in self.wallet.keys()]):
@@ -306,11 +306,7 @@ class Trader:
                         new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] * (
                                     1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company][
                             "Reward"], 0)
-                    # todo: Ver se fazemos reward negativo ao S*H
-                    print("_______________________")
-                    print(self.history[t][1])
-                    print("********************")
-                    print(new_q_values)
+                    # todo: Ver se fazemos reward negativo ao S*H e B*H
                 output_values[t] = new_q_values
 
                 breh += 1
@@ -375,11 +371,12 @@ class Trader:
             raise Exception("Update_rewards mandado quando não venda")
         company_index = next((i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
         sell_price = self.get_sell_price(self.history[update_time][0][company_index], True)
-        self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0]) / sell_price) * (
-                self.history[update_time][2][company]["Transaction_Amount"] / (
-                self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
-        # NOTA: se isto for rodado enquanto self.wallet não é imediatamente depois da venda podemos fazer dos dados
-        # de input do instante a seguir
+        #self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0]) / sell_price) * (
+         #       self.history[update_time][2][company]["Transaction_Amount"] / (
+          #       self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
+        self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0])/sell_price)
+
+        print((sell_price - self.wallet[company][0])/sell_price)
         self.history[update_time][2][company]["Reward_Check"] = 0
         reward_power = self.history[update_time][2][company]["Transaction_Amount"]
         for t in self.history.keys():  # Temos de assumir que isto vai de mais velho pra mais novo
@@ -388,15 +385,20 @@ class Trader:
                 if self.history[t][2][company]["Transaction"] == "B" and self.history[t][2][company][
                     "Reward_Check"] > 0:
                     buy_price = self.get_buy_price(self.history[t][0][company_index], True)
+
                     # Reward de buy = fraçao de lucro * fraçao de stocks compradas/stocks vendidas no futuro * min(1,
                     # reward_power/reward_check)
+                    #self.history[t][2][company]["Reward"] += ((sell_price - buy_price) / sell_price) * (
+                     #       self.history[t][2][company]["Transaction_Amount"] /
+                      #      self.history[update_time][2][company]["Transaction_Amount"]) * min(1, reward_power /
+                       #                                                                        self.history[t][2][
+                        #                                                                           company][
+                         #                                                                          "Reward_Check"])
 
-                    self.history[t][2][company]["Reward"] += ((sell_price - buy_price) / sell_price) * (
-                            self.history[t][2][company]["Transaction_Amount"] /
-                            self.history[update_time][2][company]["Transaction_Amount"]) * min(1, reward_power /
-                                                                                               self.history[t][2][
-                                                                                                   company][
-                                                                                                   "Reward_Check"])
+                    #Reward de buy += fraçao de lucro * min(reward_power, amount)/amount
+                    self.history[t][2][company]["Reward"] += ((sell_price - buy_price)/sell_price) * (
+                        min(self.history[t][2][company]["Transaction_Amount"], reward_power)/self.history[t][2][company]["Transaction_Amount"]
+                    )
                     reward_power_old = reward_power
                     reward_power = max(reward_power - self.history[t][2][company]["Reward_Check"], 0)
                     self.history[t][2][company]["Reward_Check"] = max(
@@ -408,6 +410,11 @@ class Trader:
                     self.history[t][2][company]["Reward_Check"] = 0
                 # SELL PROIBIDO FORÇADO A HOLD
                 elif self.history[t][2][company]["Transaction"] == "S*H" and self.history[t][2][company][
+                    "Reward_Check"] > 0:
+                    self.history[t][2][company]["Reward"] = 0  # ya pq nao pode isso é tau tau
+                    self.history[t][2][company]["Reward_Check"] = 0
+                # BUY PROIBIDO FORÇADO A HOLD
+                elif self.history[t][2][company]["Transaction"] == "B*H" and self.history[t][2][company][
                     "Reward_Check"] > 0:
                     self.history[t][2][company]["Reward"] = 0  # ya pq nao pode isso é tau tau
                     self.history[t][2][company]["Reward_Check"] = 0
