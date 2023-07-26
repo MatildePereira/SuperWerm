@@ -15,7 +15,7 @@ def create_trader():
 
 if __name__ == '__main__':
     hammond = create_trader()
-    hammond.random_choice_chance = 1.0
+    hammond.random_choice_chance = 0.1
     hammond.now = pd.Timestamp(str(random.randint(2021,2022))+'-'+str(random.randint(5,12))+'-'+str(random.randint(5,12))+ ' 09:30:00-0400', tz='America/New_York')
 
     file = open("text.txt", "w")
@@ -24,7 +24,7 @@ if __name__ == '__main__':
     #trader.now = trader.get_stock_data()["INTC"].index[0] - relativedelta(days=60)
     #data = trader.get_stock_data(points=30)
 
-    for i in range(10000):
+    while True:
         hammond.decide_transaction()
         #We give the boy more mone
         hammond.balance += 100
