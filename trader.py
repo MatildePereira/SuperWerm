@@ -419,14 +419,14 @@ class Trader:
                     self.history[t][2][company]["Reward"] = 0  # ya pq nao pode isso é tau tau
                     self.history[t][2][company]["Reward_Check"] = 0
 
-    def train_model(self, size=None, epochs=3):
-        input_data, output_data = self.generate_historical_training_data(size=size, delete_history=True)
+    def train_model(self, size=None, epochs=3, delete_history=False):
+        input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
         self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
                        validation_split=self.validation_ratio)
         self.model.save(self.model_name)
 
-    def create_model(self, stock_correlation_sizes=[300, 200, 100], wallet_correlation_sizes=[50, 30, 10],
-                     prediction_sizes=[200, 100, 100], decision_sizes=[200, 100]):
+    def create_model(self, stock_correlation_sizes=[1000, 500, 300, 100], wallet_correlation_sizes=[50, 30, 10],
+                     prediction_sizes=[400, 200, 100], decision_sizes=[200, 100]):
         inputs = []
         stock_inputs = []
         input2 = Input(shape=(len(self.wallet.keys()), 2,))
@@ -480,3 +480,73 @@ class Trader:
         opt = Adam(learning_rate=self.learning_rate)
 
         self.model.compile(optimizer=opt, loss="mse")
+        def create_model_tunable(self, hp):
+
+            stock_correlation_sizes = [hp.Int("stock_correlation_"+str(i),min_value=3, max_value=2000)
+                                       for i in range(hp.Int("stock_correlation_hidden_size",min_value=1, max_value=5))]
+            wallet_correlation_sizes = [hp.Int("wallet_correlation_" + str(i), min_value=1, max_value=100)
+                                        for i in
+                                        range(hp.Int("wallet_correlation_hidden_size", min_value=1, max_value=5))]
+            prediction_sizes = [hp.Int("prediction_"+str(i), min_value=5, max_value=1000)
+                                for i in range(hp.Int("prediction_hidden_size", min_value=0, max_value=5))
+
+            ]
+            decision_sizes = [hp.Int("decision_"+str(i), min_value=3, max_value=500)
+                              for i in range(hp.Int("decision_hidden_size", min_value=1, max_value=5))]
+
+
+
+            inputs = []
+            stock_inputs = []
+            input2 = Input(shape=(len(self.wallet.keys()), 2,))
+            wallet_input = BatchNormalization(synchronized=True)(input2)
+
+            for i in range(len(self.wallet)):
+                inputs.append(Input(shape=(self.timesteps, 5,)))
+                stock_inputs.append(BatchNormalization(synchronized=True)(inputs[i]))
+            big_boy = Concatenate()(stock_inputs)
+            for size in stock_correlation_sizes[:-1]:
+                big_boy = LSTM(units=size, return_sequences=True)(
+                    big_boy)  # big_boy = LSTM(units=size, input_shape=(self.timesteps, 5))(big_boy)
+            big_boy = LSTM(units=stock_correlation_sizes[-1])(big_boy)
+
+            wallet_boy = Dense(units=wallet_correlation_sizes[0])(wallet_input)
+            for size in wallet_correlation_sizes[1:]:
+                wallet_boy = Dense(units=size, activation="linear")(wallet_boy)
+
+            outputs = []
+            if len(prediction_sizes) > 0:
+                prediction_boys = [None for i in range(len(stock_inputs))]
+                for i in range(len(stock_inputs)):
+                    prediction_boys[i] = LSTM(units=prediction_sizes[0], return_sequences=True)(stock_inputs[
+                                                                                                    i])
+                    # prediction_boys[i] = LSTM(units=prediction_sizes[0], input_shape=(self.timesteps, 5))(inputs[i])
+
+                    for size in prediction_sizes[1:-1]:
+                        prediction_boys[i] = LSTM(units=size, return_sequences=True)(prediction_boys[i])
+                    prediction_boys[i] = LSTM(units=prediction_sizes[-1])(prediction_boys[i])
+
+                # intermediate_layers = [Flatten()(prediction_boy) for prediction_boy in prediction_boys] + [ Flatten()(
+                # wallet_boy)] + [ Flatten()(big_boy)]
+                intermediate_layers = []
+                for prediction_boy in prediction_boys:
+                    intermediate_layers.append(
+                        [Flatten()(wallet_boy)] + [Flatten()(big_boy)] + [Flatten()(prediction_boy)])
+                for layer in intermediate_layers:
+                    decision_boy = Concatenate(axis=1)(layer)
+                    for size in decision_sizes:
+                        decision_boy = Dense(size, activation="relu")(decision_boy)
+                    decision_boy = Dense(3, activation="relu")(decision_boy)
+                    outputs.append(decision_boy)
+            else:
+                intermediate_layers = [Flatten()(wallet_boy)] + [Flatten()(big_boy)]
+                decision_boy = Concatenate(axis=1)(intermediate_layers)
+                for size in decision_sizes:
+                    decision_boy = Dense(size, activation="relu")(decision_boy)
+                decision_boy = Dense(3, activation="relu")(decision_boy)
+                outputs.append(decision_boy)
+
+            self.model = Model(inputs=inputs + [input2], outputs=outputs)
+            opt = Adam(learning_rate=self.learning_rate)
+            self.model.compile(optimizer=opt, loss="mse")
+
