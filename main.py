@@ -6,6 +6,7 @@ import random
 from dateutil.relativedelta import relativedelta
 import random
 import pandas as pd
+import keras_tuner
 # Press the green button in the gutter to run the script.
 
 
@@ -21,6 +22,10 @@ if __name__ == '__main__':
     trader.now = pd.Timestamp(str(random.randint(2021,2022))+'-'+str(random.randint(8,12))+'-'+str(random.randint(1,29))+ ' 09:30:00-0400', tz='America/New_York')
 
     file = open("text.txt", "w")
+
+    tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
+    objective='val_loss',
+    max_trials=5)
 
     #trader.create_model()
     #trader.now = trader.get_stock_data()["INTC"].index[0] - relativedelta(days=60)
@@ -47,9 +52,17 @@ if __name__ == '__main__':
 
         file.write(np.array2string(np.array(trader.wallet.values())) + "\n")
         if trader.check_history_for_trainable_data():
+
+
+            trader.model = trader.tune_model(tuner)[0]
+
             trader.train_model(None, delete_history= not model_tuning)
             trader.random_choice_chance = max(trader.random_choice_chance-0.05, 0.1)
             file.write("_*_*_*_*_*_*_*_TRAINED BOY_*_*_*_*_*_*_*_\n")
+
+            #Para comparar loss tens de fazer history = model.fit() e depois history.history['loss'] ou 'val_loss' e isso retorna uma lista
+
+
         trader.update_time()
         file.write("****************************************************\n")
 
