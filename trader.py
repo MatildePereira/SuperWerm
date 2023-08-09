@@ -1,10 +1,11 @@
 import datetime
 import time
 
+import tensorflow
+import keras
 import pandas as pd
 import yfinance as yf
 import numpy as np
-import keras
 from keras.layers import BatchNormalization, LSTM, Dense, Dropout, Input, Concatenate, Flatten
 from keras.models import Model
 from keras.optimizers import Adam
@@ -26,7 +27,7 @@ class Trader:
     def __init__(self, model_name="JAMEMB", init_balance=100, companies=['GOOG', 'AAPL'],
                  interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
                  hold_reward=0.05,
-                 learning_rate=0.00001, q_learning_rate=0.1, validation_ratio=0.8, real_time=False,
+                 learning_rate=0.00001, q_learning_rate=0.1, discount_factor=0.1, validation_ratio=0.8, real_time=False,
                  random_choice_chance=0):
         self.validation_ratio = validation_ratio
         self.init_balance = init_balance
@@ -45,6 +46,7 @@ class Trader:
         self.hold_reward = hold_reward
         self.learning_rate = learning_rate
         self.q_learning_rate = q_learning_rate
+        self.discount_factor = discount_factor
         self.history = {}
         self.real_time = real_time
         # self.now = datetime.datetime.strptime('2023-5-12 10:30:00', '%Y-%m-%d %H:%M:%S')
@@ -302,10 +304,16 @@ class Trader:
                     company_index = next(
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
 
-                    new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] = max(
-                        new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] * (
-                                    1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company][
-                            "Reward"], 0)
+                    try:
+                        new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] = max(
+                            new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] * (
+                                        1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company][
+                                "Reward"] + self.discount_factor*np.max(self.history[list(self.history.keys())[list(self.history.keys()).index(t)+1]][1][company_index]), 0)
+                    except:
+                        new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] = max(
+                            new_q_values[company_index][0][lil_key[self.history[t][2][company]["Transaction"]]] * (
+                                        1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company][
+                                "Reward"], 0)
                     # todo: Ver se fazemos reward negativo ao S*H e B*H
                 output_values[t] = new_q_values
 
@@ -480,17 +488,16 @@ class Trader:
         opt = Adam(learning_rate=self.learning_rate)
 
         self.model.compile(optimizer=opt, loss="mse")
-    def create_model_tunable(self, hp):
 
+    def create_model_tunable(self, hp):
         stock_correlation_sizes = [hp.Int("stock_correlation_"+str(i),min_value=3, max_value=2000)
                                    for i in range(hp.Int("stock_correlation_hidden_size",min_value=1, max_value=5))]
         wallet_correlation_sizes = [hp.Int("wallet_correlation_" + str(i), min_value=1, max_value=100)
                                     for i in
                                     range(hp.Int("wallet_correlation_hidden_size", min_value=1, max_value=5))]
         prediction_sizes = [hp.Int("prediction_"+str(i), min_value=5, max_value=1000)
-                            for i in range(hp.Int("prediction_hidden_size", min_value=0, max_value=5))
+                            for i in range(hp.Int("prediction_hidden_size", min_value=0, max_value=5))]
 
-        ]
         decision_sizes = [hp.Int("decision_"+str(i), min_value=3, max_value=500)
                           for i in range(hp.Int("decision_hidden_size", min_value=1, max_value=5))]
 
@@ -546,15 +553,19 @@ class Trader:
             decision_boy = Dense(3, activation="relu")(decision_boy)
             outputs.append(decision_boy)
 
-        self.model = Model(inputs=inputs + [input2], outputs=outputs)
+        temp_model = Model(inputs=inputs + [input2], outputs=outputs)
         opt = Adam(learning_rate=self.learning_rate)
-        self.model.compile(optimizer=opt, loss="mse")
+        temp_model.compile(optimizer=opt, loss="mse")
+        return temp_model
 
     def tune_model(self,tuner):
-        X, Y = self.generate_historical_training_data()
-        X_val = X[len(X)*self.validation_ratio:]
-        Y_val = Y[len(Y)*self.validation_ratio:]
-        X = X[:len(X)*self.validation_ratio]
-        Y = Y[:len(Y)*self.validation_ratio]
+        X, Y = self.generate_historical_training_data(size=None, delete_history=False)
+        '''
+        X_val = X[int(len(X)*self.validation_ratio):]
+        Y_val = Y[int(len(Y)*self.validation_ratio):]
+        X = X[:int(len(X)*self.validation_ratio)]
+        Y = Y[:int(len(Y)*self.validation_ratio)]
         tuner.search(X,Y, epochs=3, validation_data=(X_val, Y_val))
+        '''
+        tuner.search(X, Y, epochs=3, validation_split=self.validation_ratio)
         return tuner.get_best_models()
