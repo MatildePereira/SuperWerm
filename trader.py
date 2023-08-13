@@ -430,7 +430,7 @@ class Trader:
     def train_model(self, size=None, epochs=3, delete_history=False):
         input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
         self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
-                       validation_split=self.validation_ratio)
+                       validation_split=self.validation_ratio, verbose=0)
         self.model.save(self.model_name)
 
     def create_model(self, stock_correlation_sizes=[1000, 500, 300, 100], wallet_correlation_sizes=[50, 30, 10],
