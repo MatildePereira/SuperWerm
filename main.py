@@ -7,6 +7,7 @@ from dateutil.relativedelta import relativedelta
 import random
 import pandas as pd
 import keras_tuner
+import pydataman
 
 
 # Press the green button in the gutter to run the script.
@@ -21,15 +22,19 @@ if __name__ == '__main__':
 
     model_tuning = True
     trader = create_trader()
-    trader.random_choice_chance = 0.5
+    trader.random_choice_chance = 0.9
     trader.now = pd.Timestamp(str(random.randint(2021, 2022)) + '-' + str(random.randint(10, 12)) + '-' + str(
         random.randint(1, 29)) + ' 09:30:00-0400', tz='America/New_York')
 
     file = open("text.txt", "w")
 
-    tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
-                                             objective='val_loss',
-                                             max_trials=3)
+    if pydataman.exists("saved_tuner"):
+        tuner = pydataman.read("saved_tuner")
+    else:
+        tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
+                                                 objective='val_loss',
+                                                 max_trials=5)
+        pydataman.save("saved_tuner", tuner)
 
     joe_biden = 0
 
@@ -44,7 +49,7 @@ if __name__ == '__main__':
         trader.decide_transaction()
 
         # We give the boy more mone
-        #trader.balance += 100
+        trader.balance += 100
         joe_biden += 1
 
         # true_balance = hammond.balance -100
@@ -66,6 +71,9 @@ if __name__ == '__main__':
             # Para comparar loss tens de fazer history = model.fit() e depois history.history['loss'] ou 'val_loss' e isso retorna uma lista
 
             trader.model = trader.tune_model(tuner)[0]
+
+            pydataman.save("saved_tuner", tuner)
+
             trader.train_model(None, delete_history=False)
 
             joe_biden = 0

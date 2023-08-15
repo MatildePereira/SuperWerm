@@ -88,6 +88,8 @@ class Trader:
         self.wallet[company][1] += amount
         self.balance -= buy_price * amount
 
+        #print("B "+ str(company)+" "+str(buy_price)+ "*"+ str(amount))
+
     def sell(self, company, amount):
         """
         :param company: indicator of which company you're selling the stock
@@ -98,6 +100,8 @@ class Trader:
         sell_price = self.get_sell_price(stock_data)
         self.wallet[company][1] -= amount
         self.balance += sell_price * amount
+        #print("S "+ str(company)+" "+str(sell_price)+ "*"+ str(amount))
+
 
     # def get_stock_data(self, immediately=True, points=1, max_margin=2, real_time=False):
     def get_stock_data(self, points=1, max_margin=2):
@@ -299,8 +303,8 @@ class Trader:
         breh = 0
         for t in self.history.keys():
             if not np.any([self.history[t][2][i]["Reward_Check"] for i in self.wallet.keys()]):
+                new_q_values = self.history[t][1]
                 for company in self.wallet.keys():
-                    new_q_values = self.history[t][1]
                     company_index = next(
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
 
@@ -427,7 +431,7 @@ class Trader:
                     self.history[t][2][company]["Reward"] = 0  # ya pq nao pode isso é tau tau
                     self.history[t][2][company]["Reward_Check"] = 0
 
-    def train_model(self, size=None, epochs=3, delete_history=False):
+    def train_model(self, size=None, epochs=5, delete_history=False):
         input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
         self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
                        validation_split=self.validation_ratio, verbose=0)
@@ -558,7 +562,7 @@ class Trader:
         temp_model.compile(optimizer=opt, loss="mse")
         return temp_model
 
-    def tune_model(self,tuner):
+    def tune_model(self, tuner):
         X, Y = self.generate_historical_training_data(size=None, delete_history=False)
         '''
         X_val = X[int(len(X)*self.validation_ratio):]
