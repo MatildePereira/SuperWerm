@@ -15,26 +15,28 @@ import pydataman
 
 def create_trader():
     return Trader("James May", companies=["FDX", "EXPD", "HUBG"], init_balance=5000, hold_reward=0.1, buy_tax=0,
-                  pessimism_factor=0)
+                  pessimism_factor=0, learning_rate=0.001)
 
 
 if __name__ == '__main__':
 
     model_tuning = True
     trader = create_trader()
-    trader.random_choice_chance = 0.9
-    trader.now = pd.Timestamp(str(random.randint(2021, 2022)) + '-' + str(random.randint(10, 12)) + '-' + str(
+    trader.random_choice_chance = 0.5
+    trader.now = pd.Timestamp('2021-' + str(random.randint(10, 12)) + '-' + str(
         random.randint(1, 29)) + ' 09:30:00-0400', tz='America/New_York')
 
     file = open("text.txt", "w")
 
     if pydataman.exists("saved_tuner"):
         tuner = pydataman.read("saved_tuner")
-    else:
+    if tuner is None or not pydataman.exists("saved_tuner"):
         tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
                                                  objective='val_loss',
                                                  max_trials=5)
         pydataman.save("saved_tuner", tuner)
+        print("CREATED NEW TUNER")
+
 
     joe_biden = 0
 
