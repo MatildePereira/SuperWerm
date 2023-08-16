@@ -386,10 +386,8 @@ class Trader:
             raise Exception("Update_rewards mandado quando não venda")
         company_index = next((i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
         sell_price = self.get_sell_price(self.history[update_time][0][company_index], True)
-        #self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0]) / sell_price) * (
-         #       self.history[update_time][2][company]["Transaction_Amount"] / (
-          #       self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
-        self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0])/sell_price)
+
+        self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0])/sell_price)*self.history[update_time][2][company]["Transaction_Amount"]
 
         if self.verbose == 1:
             print((sell_price - self.wallet[company][0])/sell_price)
@@ -402,19 +400,14 @@ class Trader:
                     "Reward_Check"] > 0:
                     buy_price = self.get_buy_price(self.history[t][0][company_index], True)
 
-                    # Reward de buy = fraçao de lucro * fraçao de stocks compradas/stocks vendidas no futuro * min(1,
-                    # reward_power/reward_check)
-                    #self.history[t][2][company]["Reward"] += ((sell_price - buy_price) / sell_price) * (
-                     #       self.history[t][2][company]["Transaction_Amount"] /
-                      #      self.history[update_time][2][company]["Transaction_Amount"]) * min(1, reward_power /
-                       #                                                                        self.history[t][2][
-                        #                                                                           company][
-                         #                                                                          "Reward_Check"])
 
                     #Reward de buy += fraçao de lucro * min(reward_power, amount)/amount
-                    self.history[t][2][company]["Reward"] += ((sell_price - buy_price)/sell_price) * (
+                    '''self.history[t][2][company]["Reward"] += ((sell_price - buy_price)/sell_price) * (
                         min(self.history[t][2][company]["Transaction_Amount"], reward_power)/self.history[t][2][company]["Transaction_Amount"]
-                    )
+                    )'''
+                    #Nevermind, Reward += fraçao de lucro*min(reward_power, amount)
+                    self.history[t][2][company]["Reward"] += ((sell_price - buy_price)/sell_price) *min(self.history[t][2][company]["Transaction_Amount"], reward_power)
+
                     reward_power_old = copy.deepcopy(reward_power)
                     reward_power = max(reward_power - self.history[t][2][company]["Reward_Check"], 0)
                     self.history[t][2][company]["Reward_Check"] = max(
@@ -437,6 +430,7 @@ class Trader:
 
     def train_model(self, size=None, epochs=5, delete_history=False):
         input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
+        print(output_data)
         self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
                        validation_split=self.validation_ratio, verbose=self.verbose)
         self.model.save(self.model_name)

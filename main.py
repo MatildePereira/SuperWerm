@@ -61,7 +61,7 @@ if __name__ == '__main__':
         file.write("\n")
 
         file.write(np.array2string(np.array(trader.wallet.values())) + "\n")
-        if trader.check_history_for_trainable_data() and joe_biden >= 60:
+        if trader.check_history_for_trainable_data() and joe_biden >= 180:
             trader.random_choice_chance = max(trader.random_choice_chance - 0.05, 0.1)
             file.write("_*_*_*_*_*_*_*_TRAINED BOY_*_*_*_*_*_*_*_\n")
 
