@@ -7,15 +7,15 @@ from dateutil.relativedelta import relativedelta
 import random
 import pandas as pd
 import keras_tuner
-import pydataman
+from keras.optimizers import Adam
 
 
 # Press the green button in the gutter to run the script.
 
 
 def create_trader():
-    return Trader("James May", companies=["FDX", "EXPD", "HUBG"], init_balance=5000, hold_reward=0.1, buy_tax=0,
-                  pessimism_factor=0, learning_rate=0.001)
+    return Trader("James May", companies=["FDX", "EXPD", "HUBG"], init_balance=5000, hold_reward=0.5, buy_tax=0,
+                  pessimism_factor=0, verbose=1)
 
 
 if __name__ == '__main__':
@@ -28,14 +28,9 @@ if __name__ == '__main__':
 
     file = open("text.txt", "w")
 
-    if pydataman.exists("saved_tuner"):
-        tuner = pydataman.read("saved_tuner")
-    if tuner is None or not pydataman.exists("saved_tuner"):
-        tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
-                                                 objective='val_loss',
-                                                 max_trials=5)
-        pydataman.save("saved_tuner", tuner)
-        print("CREATED NEW TUNER")
+    tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
+                                             objective='val_loss',
+                                             max_trials=5)
 
 
     joe_biden = 0
@@ -73,8 +68,6 @@ if __name__ == '__main__':
             # Para comparar loss tens de fazer history = model.fit() e depois history.history['loss'] ou 'val_loss' e isso retorna uma lista
 
             trader.model = trader.tune_model(tuner)[0]
-
-            pydataman.save("saved_tuner", tuner)
 
             trader.train_model(None, delete_history=False)
 

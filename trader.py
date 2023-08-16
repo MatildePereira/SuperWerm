@@ -11,6 +11,7 @@ from keras.models import Model
 from keras.optimizers import Adam
 from dateutil.relativedelta import relativedelta
 import pytz
+import copy
 
 '''             ,\
              \\\,_
@@ -28,12 +29,12 @@ class Trader:
                  interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
                  hold_reward=0.05,
                  learning_rate=0.00001, q_learning_rate=0.1, discount_factor=0.1, validation_ratio=0.8, real_time=False,
-                 random_choice_chance=0):
+                 random_choice_chance=0, verbose=0):
         self.validation_ratio = validation_ratio
         self.init_balance = init_balance
         self.balance = init_balance
         self.model_name = model_name
-
+        self.verbose = verbose
         self.wallet = {}
         for i in companies:
             self.wallet[i] = [-1, 0]  # [valor medio investido em compras, quantidade de ações]
@@ -88,7 +89,8 @@ class Trader:
         self.wallet[company][1] += amount
         self.balance -= buy_price * amount
 
-        #print("B "+ str(company)+" "+str(buy_price)+ "*"+ str(amount))
+        if self.verbose >= 2:
+            print("B "+ str(company)+" "+str(buy_price)+ "*"+ str(amount))
 
     def sell(self, company, amount):
         """
@@ -100,7 +102,9 @@ class Trader:
         sell_price = self.get_sell_price(stock_data)
         self.wallet[company][1] -= amount
         self.balance += sell_price * amount
-        #print("S "+ str(company)+" "+str(sell_price)+ "*"+ str(amount))
+
+        if self.verbose >= 2:
+            print("S "+ str(company)+" "+str(sell_price)+ "*"+ str(amount))
 
 
     # def get_stock_data(self, immediately=True, points=1, max_margin=2, real_time=False):
@@ -232,26 +236,26 @@ class Trader:
                     amount = max(amount, 1)
                     self.buy(company, amount)
                     self.history[t][2][company]["Transaction"] = "B"
-                    self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
-                    self.history[t][2][company]["Reward_Check"] = amount  # again, amount
+                    self.history[t][2][company]["Transaction_Amount"] = copy.deepcopy(amount)  # again, amount
+                    self.history[t][2][company]["Reward_Check"] = copy.deepcopy(amount)  # again, amount
                 else:
                     self.history[t][2][company]["Transaction"] = "B*H"
-                    self.history[t][2][company]["Reward"] = self.hold_reward  # todo decidir se fica assim
+                    self.history[t][2][company]["Reward"] = copy.deepcopy(self.hold_reward)  # todo decidir se fica assim
                     self.history[t][2][company]["Reward_Check"] = 0
             elif decision == 1 and self.wallet[company][1] > 0:
                 amount = np.floor(softmax(results[i][0], 1) * self.wallet[company][1])
                 amount = max(amount, 1.0) #ATENÇÃO: SO É VÁLIDO SE COMPRAR EM INCREMENTOS DE 1 SENAO ELE VENDE MAIS DO QUE TEM
                 self.sell(company, amount)
                 self.history[t][2][company]["Transaction"] = "S"
-                self.history[t][2][company]["Transaction_Amount"] = amount  # again, amount
+                self.history[t][2][company]["Transaction_Amount"] = copy.deepcopy(amount)  # again, amount
                 self.update_rewards(company, t)
             elif decision == 1 and self.wallet[company][1] == 0:  # aqui podera ser quando vende mais do que tem
                 self.history[t][2][company]["Transaction"] = "S*H"
-                self.history[t][2][company]["Reward"] = self.hold_reward  # todo decidir se fica assim
+                self.history[t][2][company]["Reward"] = copy.deepcopy(self.hold_reward) # todo decidir se fica assim
                 self.history[t][2][company]["Reward_Check"] = 0
             else:
                 self.history[t][2][company]["Transaction"] = "H"
-                self.history[t][2][company]["Reward"] = self.hold_reward  # todo decidir se fica assim
+                self.history[t][2][company]["Reward"] = copy.deepcopy(self.hold_reward)  # todo decidir se fica assim
                 self.history[t][2][company]["Reward_Check"] = 0
 
     def update_time(self, real_time=False, wait_fraction=0.2):
@@ -303,7 +307,7 @@ class Trader:
         breh = 0
         for t in self.history.keys():
             if not np.any([self.history[t][2][i]["Reward_Check"] for i in self.wallet.keys()]):
-                new_q_values = self.history[t][1]
+                new_q_values = copy.deepcopy(self.history[t][1])
                 for company in self.wallet.keys():
                     company_index = next(
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
@@ -320,8 +324,8 @@ class Trader:
                                 "Reward"], 0)
                     # todo: Ver se fazemos reward negativo ao S*H e B*H
                 output_values[t] = new_q_values
-
                 breh += 1
+
             if size is not None and breh == size:
                 break
 
@@ -337,7 +341,6 @@ class Trader:
             # input.append(self.history[t][0])
             if delete_history:
                 self.history.pop(t)
-
 
 
         '''
@@ -388,9 +391,10 @@ class Trader:
           #       self.wallet[company][1] + self.history[update_time][2][company]["Transaction_Amount"]))
         self.history[update_time][2][company]["Reward"] = ((sell_price - self.wallet[company][0])/sell_price)
 
-        print((sell_price - self.wallet[company][0])/sell_price)
+        if self.verbose == 1:
+            print((sell_price - self.wallet[company][0])/sell_price)
         self.history[update_time][2][company]["Reward_Check"] = 0
-        reward_power = self.history[update_time][2][company]["Transaction_Amount"]
+        reward_power = copy.deepcopy(self.history[update_time][2][company]["Transaction_Amount"])
         for t in self.history.keys():  # Temos de assumir que isto vai de mais velho pra mais novo
             if t - update_time < datetime.timedelta(0) and reward_power > 0:
                 # BUY
@@ -411,7 +415,7 @@ class Trader:
                     self.history[t][2][company]["Reward"] += ((sell_price - buy_price)/sell_price) * (
                         min(self.history[t][2][company]["Transaction_Amount"], reward_power)/self.history[t][2][company]["Transaction_Amount"]
                     )
-                    reward_power_old = reward_power
+                    reward_power_old = copy.deepcopy(reward_power)
                     reward_power = max(reward_power - self.history[t][2][company]["Reward_Check"], 0)
                     self.history[t][2][company]["Reward_Check"] = max(
                         self.history[t][2][company]["Reward_Check"] - reward_power_old, 0)
@@ -423,18 +427,18 @@ class Trader:
                 # SELL PROIBIDO FORÇADO A HOLD
                 elif self.history[t][2][company]["Transaction"] == "S*H" and self.history[t][2][company][
                     "Reward_Check"] > 0:
-                    self.history[t][2][company]["Reward"] = 0  # ya pq nao pode isso é tau tau
+                    self.history[t][2][company]["Reward"] = self.hold_reward
                     self.history[t][2][company]["Reward_Check"] = 0
                 # BUY PROIBIDO FORÇADO A HOLD
                 elif self.history[t][2][company]["Transaction"] == "B*H" and self.history[t][2][company][
                     "Reward_Check"] > 0:
-                    self.history[t][2][company]["Reward"] = 0  # ya pq nao pode isso é tau tau
+                    self.history[t][2][company]["Reward"] = self.hold_reward
                     self.history[t][2][company]["Reward_Check"] = 0
 
     def train_model(self, size=None, epochs=5, delete_history=False):
         input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
         self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
-                       validation_split=self.validation_ratio, verbose=0)
+                       validation_split=self.validation_ratio, verbose=self.verbose)
         self.model.save(self.model_name)
 
     def create_model(self, stock_correlation_sizes=[1000, 500, 300, 100], wallet_correlation_sizes=[50, 30, 10],
@@ -505,8 +509,9 @@ class Trader:
         decision_sizes = [hp.Int("decision_"+str(i), min_value=3, max_value=500)
                           for i in range(hp.Int("decision_hidden_size", min_value=1, max_value=5))]
 
+        lr = hp.Float("learning_rate", min_value=0.00000001, max_value=0.1)
 
-
+        self.batch_size = hp.Int("batch_size", min_value=2, max_value=32)
         inputs = []
         stock_inputs = []
         input2 = Input(shape=(len(self.wallet.keys()), 2,))
@@ -558,7 +563,7 @@ class Trader:
             outputs.append(decision_boy)
 
         temp_model = Model(inputs=inputs + [input2], outputs=outputs)
-        opt = Adam(learning_rate=self.learning_rate)
+        opt = Adam(learning_rate=lr)
         temp_model.compile(optimizer=opt, loss="mse")
         return temp_model
 
@@ -571,5 +576,5 @@ class Trader:
         Y = Y[:int(len(Y)*self.validation_ratio)]
         tuner.search(X,Y, epochs=3, validation_data=(X_val, Y_val))
         '''
-        tuner.search(X, Y, epochs=3, validation_split=self.validation_ratio)
+        tuner.search(X, Y, epochs=5, validation_split=self.validation_ratio)
         return tuner.get_best_models()
