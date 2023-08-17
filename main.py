@@ -14,7 +14,7 @@ from keras.optimizers import Adam
 
 
 def create_trader():
-    return Trader("James May", companies=["FDX", "EXPD", "HUBG"], init_balance=5000, hold_reward=0.5, buy_tax=0,
+    return Trader("James May", companies=["FDX", "EXPD", "HUBG"], init_balance=5000, buy_tax=0,
                   pessimism_factor=0, verbose=1)
 
 
@@ -61,7 +61,8 @@ if __name__ == '__main__':
         file.write("\n")
 
         file.write(np.array2string(np.array(trader.wallet.values())) + "\n")
-        if trader.check_history_for_trainable_data() and joe_biden >= 180:
+        if joe_biden >= 180:
+            trader.update_rewards()
             trader.random_choice_chance = max(trader.random_choice_chance - 0.05, 0.1)
             file.write("_*_*_*_*_*_*_*_TRAINED BOY_*_*_*_*_*_*_*_\n")
 
