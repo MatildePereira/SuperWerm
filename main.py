@@ -42,7 +42,7 @@ if __name__ == '__main__':
     true_balance = trader.init_balance
 
     while True:
-        # hammond.decide_transaction()
+
         trader.decide_transaction()
 
         # We give the boy more mone

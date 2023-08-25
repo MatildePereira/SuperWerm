@@ -104,7 +104,6 @@ class Trader:
         if self.verbose >= 2:
             print("S " + str(company) + " " + str(sell_price) + "*" + str(amount))
 
-    # def get_stock_data(self, immediately=True, points=1, max_margin=2, real_time=False):
     def get_stock_data(self, points=1, max_margin=2):
         """
         Saca os dados de ‘stocks’ das empresas dele
@@ -124,6 +123,7 @@ class Trader:
 
         for company in self.wallet.keys():
             comp = yf.Ticker(company)
+
             # if immediately:
             if self.real_time:
                 start_time = (self.now - relativedelta(days=6)).strftime('%Y-%m-%d')
@@ -137,9 +137,11 @@ class Trader:
                 hist[company] = bloop.loc[(bloop.index <= self.now)].tail(points)
 
         # fixme: se uma ou duas etc das açoes nao tiverem dados mas as outras sim isto nao dispara mas da erro na mesma
-        if np.size(hist.values()) == 0:
+
+        if 0 in [np.size(i) for i in hist.values()]:
+            if self.verbose >= 1:
+                print("No stock data found, trying again")
             time.sleep(3)
-            print("No stock data found, trying again")
             return self.get_stock_data(points, max_margin)
         else:
             return hist
@@ -259,7 +261,7 @@ class Trader:
         período de trading que espera até haver dados novos, apenas quando em real time
         :return:
         """
-        comp = yf.Ticker(list(self.wallet.keys())[-1])
+        comp = yf.Ticker(list(self.wallet.keys())[-1]) #Ultima empresa pq tou me a cagar
         time_table = {'s': 1, 'm': 60, 'h': 3600, 'd': 3600 * 24}
         time_sleep_in_seconds = int(int(self.interval[:-1]) * time_table[self.interval[-1]])
 
@@ -267,6 +269,10 @@ class Trader:
 
         data = comp.history(start=self.now.strftime('%Y-%m-%d'),
                             end=(self.now + relativedelta(days=6)).strftime('%Y-%m-%d'), interval=self.interval)
+
+        while np.size(data) == 0:
+            data = comp.history(start=self.now.strftime('%Y-%m-%d'),
+                                end=(self.now + relativedelta(days=6)).strftime('%Y-%m-%d'), interval=self.interval)
 
         if not real_time:
             t = self.now + relativedelta(seconds=time_sleep_in_seconds)
