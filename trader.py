@@ -372,13 +372,15 @@ class Trader:
         Hold : discount*max(t+1)
         :return:
         """
-
-        for t in list(self.history.keys()).reverse(): #Do mais novo pro mais velho
+        reverted_history = copy.deepcopy(list(self.history.keys()))
+        reverted_history.reverse()
+        for t in reverted_history: #Do mais novo pro mais velho
             if list(self.history.keys()).index(t) != len(self.history.keys())-1: # se nao for o ultimo ponto
                 for company in self.wallet.keys():
                     company_index = next(
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
-                    if (self.history[t][0][1][company_index][0] != -1): #Se a wallet nao tem valor medio de investimento i.e se ainda nao trocou
+                    #Todo erro aqui
+                    if self.history[t][0][1][company_index][0][0] != -1: #Se a wallet nao tem valor medio de investimento i.e se ainda nao trocou
                         buy_price = self.get_buy_price(self.history[t][0][company_index], True)
                         sell_price = self.get_sell_price(self.history[t][0][company_index], True)
 
