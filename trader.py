@@ -12,6 +12,7 @@ from keras.optimizers import Adam
 from dateutil.relativedelta import relativedelta
 import pytz
 import copy
+from keras.callbacks import EarlyStopping
 
 '''             ,\
              \\\,_
@@ -27,7 +28,7 @@ jgs    `-----` `--`
 class Trader:
     def __init__(self, model_name="JAMEMB", init_balance=100, companies=['GOOG', 'AAPL'],
                  interval="1h", buy_tax=0.06, investible_fraction=0.8, timesteps=10, batch_size=20, pessimism_factor=0,
-                 learning_rate=0.00001, q_learning_rate=0.5, discount_factor=0.5, validation_ratio=0.8, real_time=False,
+                 learning_rate=0.00001, q_learning_rate=0.3, discount_factor=0.9, validation_ratio=0.8, real_time=False,
                  random_choice_chance=0, verbose=0):
         self.validation_ratio = validation_ratio
         self.init_balance = init_balance
@@ -314,7 +315,7 @@ class Trader:
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
 
                     new_q_values[company_index][0] = new_q_values[company_index][0]*(1-self.q_learning_rate) + self.q_learning_rate*self.history[t][2][company]["Reward"]
-                    new_q_values[company_index][0][2] /= self.learning_rate
+
                     new_q_values[company_index][0] = np.clip(new_q_values[company_index][0], 0, np.inf)
 
                 output_values[t] = new_q_values
@@ -385,11 +386,13 @@ class Trader:
 
                             self.history[t][2][company]["Reward_Check"] = 0
 
-    def train_model(self, size=None, epochs=3, delete_history=False):
+    def train_model(self, size=None, epochs=20, delete_history=False):
         input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
-        print(input_data)
+
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=1, patience=3, mode='min',
+                                       restore_best_weights=True)
         self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
-                       validation_split=self.validation_ratio, verbose=self.verbose)
+                       validation_split=self.validation_ratio, callbacks=[early_stopping], verbose=self.verbose)
         self.model.save(self.model_name)
 
     def create_model(self, stock_correlation_sizes=[1000, 500, 300, 100], wallet_correlation_sizes=[50, 30, 10],
@@ -462,6 +465,10 @@ class Trader:
 
         lr = hp.Float("learning_rate", min_value=0.00000001, max_value=0.1)
 
+        dropout = hp.Float("dropout", min_value=0, max_value=0.9)
+
+        clipvalue = hp.Float("clipvalue", min_value=0, max_value=1)
+
         self.batch_size = hp.Int("batch_size", min_value=2, max_value=32)
         inputs = []
         stock_inputs = []
@@ -475,12 +482,16 @@ class Trader:
         for size in stock_correlation_sizes[:-1]:
             big_boy = LSTM(units=size, return_sequences=True)(
                 big_boy)  # big_boy = LSTM(units=size, input_shape=(self.timesteps, 5))(big_boy)
+            big_boy = Dropout(dropout)(big_boy)
         big_boy = LSTM(units=stock_correlation_sizes[-1])(big_boy)
+        big_boy = Dropout(dropout)(big_boy)
         big_boy = Flatten()(big_boy)
 
         wallet_boy = Dense(units=wallet_correlation_sizes[0])(wallet_input)
+        wallet_boy = Dropout(dropout)(wallet_boy)
         for size in wallet_correlation_sizes[1:]:
             wallet_boy = Dense(units=size, activation="linear")(wallet_boy)
+            wallet_boy = Dropout(dropout)(wallet_boy)
         wallet_boy = Flatten()(wallet_boy)
 
         outputs = []
@@ -488,9 +499,12 @@ class Trader:
             prediction_boys = [None for i in range(len(stock_inputs))]
             for i in range(len(stock_inputs)):
                 prediction_boys[i] = LSTM(units=prediction_sizes[0], return_sequences=True)(stock_inputs[i])
+                prediction_boys[i] = Dropout(dropout)(prediction_boys[i])
                 for size in prediction_sizes[1:-1]:
                     prediction_boys[i] = LSTM(units=size, return_sequences=True)(prediction_boys[i])
+                    prediction_boys[i] = Dropout(dropout)(prediction_boys[i])
                 prediction_boys[i] = LSTM(units=prediction_sizes[-1])(prediction_boys[i])
+                prediction_boys[i] = Dropout(dropout)(prediction_boys[i])
                 prediction_boys[i] = Flatten()(prediction_boys[i])
 
             intermediate_layers = []
@@ -501,6 +515,7 @@ class Trader:
                 decision_boy = Concatenate(axis=1)(layer)
                 for size in decision_sizes:
                     decision_boy = Dense(size, activation="relu")(decision_boy)
+                    decision_boy = Dropout(dropout)(decision_boy)
                 decision_boy = Dense(3, activation="relu")(decision_boy)
                 outputs.append(decision_boy)
         else:
@@ -509,15 +524,16 @@ class Trader:
                 decision_boy = Concatenate(axis=1)(intermediate_layers)
                 for size in decision_sizes:
                     decision_boy = Dense(size, activation="relu")(decision_boy)
+                    decision_boy = Dropout(dropout)(decision_boy)
                 decision_boy = Dense(3, activation="relu")(decision_boy)
                 outputs.append(decision_boy)
 
         temp_model = Model(inputs=inputs + [input2], outputs=outputs)
-        opt = Adam(learning_rate=lr)
+        opt = Adam(learning_rate=lr, clipvalue=clipvalue)
         temp_model.compile(optimizer=opt, loss="mse")
         return temp_model
 
     def tune_model(self, tuner):
         X, Y = self.generate_historical_training_data(size=None, delete_history=False)
-        tuner.search(X, Y, epochs=3, validation_split=self.validation_ratio)
+        tuner.search(X, Y, epochs=5, validation_split=self.validation_ratio)
         return tuner.get_best_models()
