@@ -22,7 +22,8 @@ if __name__ == '__main__':
 
     model_tuning = True
     trader = create_trader()
-    trader.random_choice_chance = 0.5
+
+    trader.random_choice_chance = 1
     trader.now = pd.Timestamp('2021-' + str(random.randint(10, 12)) + '-' + str(
         random.randint(1, 29)) + ' 09:30:00-0400', tz='America/New_York')
 
@@ -40,6 +41,8 @@ if __name__ == '__main__':
     # data = trader.get_stock_data(points=30)
 
     true_balance = trader.init_balance
+
+    tf.keras.utils.plot_model(trader.model, to_file="model.png", show_shapes=True)
 
     while True:
 
@@ -61,7 +64,7 @@ if __name__ == '__main__':
         file.write("\n")
 
         file.write(np.array2string(np.array(trader.wallet.values())) + "\n")
-        if joe_biden >= 180:
+        if joe_biden >= 100:
             trader.update_rewards()
             trader.random_choice_chance = max(trader.random_choice_chance - 0.05, 0.1)
             file.write("_*_*_*_*_*_*_*_TRAINED BOY_*_*_*_*_*_*_*_\n")
