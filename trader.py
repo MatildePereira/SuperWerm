@@ -463,7 +463,7 @@ class Trader:
         decision_sizes = [hp.Int("decision_" + str(i), min_value=3, max_value=500)
                           for i in range(hp.Int("decision_hidden_size", min_value=1, max_value=5))]
 
-        lr = hp.Float("learning_rate", min_value=0.00000001, max_value=0.1)
+        lr = 10**(-hp.Float("learning_rate_exponent", min_value=1, max_value=10))
 
         dropout = hp.Float("dropout", min_value=0, max_value=0.9)
 
