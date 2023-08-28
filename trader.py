@@ -55,10 +55,12 @@ class Trader:
         self.random_choice_chance = random_choice_chance
         try:
             self.model = keras.models.load_model(model_name)
+            self.score = float(open("score.txt","r").read())
             print("FETCHED MODEL: " + model_name)
         except:
             print("CANNOT FECH MODEL " + model_name, ", CREATING NEW...")
             self.create_model()
+            self.score = np.inf
         self.train_history = None
 
     def get_buy_price(self, stock_data, is_input_data=False):
@@ -392,12 +394,15 @@ class Trader:
     def train_model(self, size=None, epochs=20, delete_history=False):
         input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
 
-        early_stopping = EarlyStopping(monitor='val_loss', min_delta=1, patience=3, mode='min',
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=1, patience=6, mode='min',
                                        restore_best_weights=True)
         self.train_history = self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
                                             validation_split=self.validation_ratio, callbacks=[early_stopping],
                                             verbose=self.verbose)
         self.model.save(self.model_name)
+
+        self.score = self.train_history.history["val_loss"][-1]
+        f = open("score.txt","w").write(str(self.score))
 
     def create_model(self, stock_correlation_sizes=[1000, 500, 300, 100], wallet_correlation_sizes=[50, 30, 10],
                      prediction_sizes=[400, 200, 100], decision_sizes=[200, 100]):
@@ -539,6 +544,6 @@ class Trader:
 
     def tune_model(self, tuner):
         X, Y = self.generate_historical_training_data(size=None, delete_history=False)
-        tuner.search(X, Y, epochs=20, validation_split=self.validation_ratio, callbacks=[EarlyStopping(monitor='val_loss', min_delta=1, patience=3, mode='min',
+        tuner.search(X, Y, epochs=20, validation_split=self.validation_ratio, callbacks=[EarlyStopping(monitor='val_loss', min_delta=1, patience=6, mode='min',
                                        restore_best_weights=True)])
         # return tuner.get_best_models()
