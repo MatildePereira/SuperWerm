@@ -60,6 +60,7 @@ class Trader:
         except:
             print("CANNOT FECH MODEL " + model_name, ", CREATING NEW...")
             self.create_model()
+        self.train_history = None
 
     def get_buy_price(self, stock_data, is_input_data=False):
         if not is_input_data:
@@ -391,7 +392,7 @@ class Trader:
 
         early_stopping = EarlyStopping(monitor='val_loss', min_delta=1, patience=3, mode='min',
                                        restore_best_weights=True)
-        self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
+        self.train_history = self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
                        validation_split=self.validation_ratio, callbacks=[early_stopping], verbose=self.verbose)
         self.model.save(self.model_name)
 
@@ -536,4 +537,5 @@ class Trader:
     def tune_model(self, tuner):
         X, Y = self.generate_historical_training_data(size=None, delete_history=False)
         tuner.search(X, Y, epochs=5, validation_split=self.validation_ratio)
-        return tuner.get_best_models()
+        print("________Tuned____________")
+        #return tuner.get_best_models()
