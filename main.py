@@ -1,16 +1,23 @@
 from trader import Trader
 import numpy as np
-import datetime
 import tensorflow as tf
-import random
 from dateutil.relativedelta import relativedelta
 import random
 import pandas as pd
 import keras_tuner
-from keras.optimizers import Adam
+import json
+import os
 
 
 # Press the green button in the gutter to run the script.
+
+def get_best_score(trials):
+    scores = []
+    for i in trials:
+        f = open('tuner_dir/tuner/trial_' + str(i) + '/trial.json')
+        data = json.load(f)
+        scores.append(data['score'])
+    return scores
 
 
 def create_trader():
@@ -23,11 +30,13 @@ if __name__ == '__main__':
     model_tuning = True
     trader = create_trader()
     trader.create_model(stock_correlation_sizes=[1000, 100], wallet_correlation_sizes=[50, 10],
-                     prediction_sizes=[], decision_sizes=[100])
+                        prediction_sizes=[], decision_sizes=[100])
 
     trader.random_choice_chance = 0.4
     trader.now = pd.Timestamp('2021-' + str(random.randint(11, 12)) + '-' + str(
         random.randint(1, 29)) + ' 09:30:00-0400', tz='America/New_York')
+
+    trader.score = np.inf
 
     file = open("text.txt", "w")
 
@@ -72,22 +81,27 @@ if __name__ == '__main__':
                                                      executions_per_trial=1,
                                                      overwrite=False,
                                                      project_name="tuner",
+                                                     directory="tuner_dir",
                                                      max_trials=trainedos)
 
-            # Para comparar loss tens de fazer history = model.fit() e depois history.history['loss'] ou 'val_loss' e isso retorna uma lista
-
-            #trader.model = trader.tune_model(tuner)[0]
+            # Para comparar loss tens de fazer history = model.fit() e depois history.history['loss'] ou 'val_loss' e
+            # isso retorna uma lista
+            # trader.model = trader.tune_model(tuner)[0]
             trader.tune_model(tuner)
-
-            trader.model = tuner.hypermodel.build(tuner.get_best_hyperparameters()[0])
-
-            tuner.results_summary()
-
-            trader.train_model(None, delete_history=False)
-
-
+            scores = get_best_score(tuner.oracle.trials)
+            if trader.score > min(scores):
+                trader.model = tuner.get_best_models()[0]
+                trader.score = min(scores)
+                print("Switched Models")
+            else:
+                trader.train_model(None, delete_history=False)
+            # trader.model = tuner.hypermodel.build(tuner.get_best_hyperparameters()[0])
             joe_biden = 0
-            trainedos = min(trainedos+hungarobaloos, 20)
+            trainedos = min(trainedos + hungarobaloos, 20)
+            if trainedos >= 20:
+                trainedos = 1
+                os.rmdir("tuner_dir/tuner")
+
         trader.update_time()
         file.write("****************************************************\n")
 

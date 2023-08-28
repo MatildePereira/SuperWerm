@@ -1,7 +1,6 @@
 import datetime
 import time
 
-import tensorflow
 import keras
 import pandas as pd
 import yfinance as yf
@@ -231,7 +230,7 @@ class Trader:
                 decision = np.argmax(results[i][0])
             else:
                 decision = np.random.choice([1, 2, 0])
-            softmax = lambda x, j: np.exp(x[j]) / sum(np.exp(x))
+            softmax = lambda x, j: np.exp(np.clip(x[j],0,300)) / sum(np.exp(np.clip(x,0,300)))
 
             if decision == 0:
                 buy_price = self.get_buy_price(
@@ -266,7 +265,7 @@ class Trader:
         período de trading que espera até haver dados novos, apenas quando em real time
         :return:
         """
-        comp = yf.Ticker(list(self.wallet.keys())[-1]) #Ultima empresa pq tou me a cagar
+        comp = yf.Ticker(list(self.wallet.keys())[-1])  # Ultima empresa pq tou me a cagar
         time_table = {'s': 1, 'm': 60, 'h': 3600, 'd': 3600 * 24}
         time_sleep_in_seconds = int(int(self.interval[:-1]) * time_table[self.interval[-1]])
 
@@ -315,7 +314,8 @@ class Trader:
                     company_index = next(
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
 
-                    new_q_values[company_index][0] = new_q_values[company_index][0]*(1-self.q_learning_rate) + self.q_learning_rate*self.history[t][2][company]["Reward"]
+                    new_q_values[company_index][0] = new_q_values[company_index][0] * (
+                                1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company]["Reward"]
 
                     new_q_values[company_index][0] = np.clip(new_q_values[company_index][0], 0, np.inf)
 
@@ -365,27 +365,29 @@ class Trader:
         reverted_history = copy.deepcopy(list(self.history.keys()))
         reverted_history.reverse()
         for t in reverted_history:  # Do mais novo pro mais velho
-                for company in self.wallet.keys():
-                    company_index = next(
-                        (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
+            for company in self.wallet.keys():
+                company_index = next(
+                    (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
 
-                    if self.history[t][0][3][0][company_index][0] != -1: #Se a wallet nao tem valor medio de investimento i.e se ainda nao trocou
-                        buy_price = self.get_buy_price(self.history[t][0][company_index], True)
-                        sell_price = self.get_sell_price(self.history[t][0][company_index], True)
+                if self.history[t][0][3][0][company_index][
+                    0] != -1:  # Se a wallet nao tem valor medio de investimento i.e se ainda nao trocou
+                    buy_price = self.get_buy_price(self.history[t][0][company_index], True)
+                    sell_price = self.get_sell_price(self.history[t][0][company_index], True)
 
-                        #sell
-                        self.history[t][2][company]["Reward"][1] = (sell_price - self.history[t][0][3][0][company_index][0])
+                    # sell
+                    self.history[t][2][company]["Reward"][1] = (sell_price - self.history[t][0][3][0][company_index][0])
 
-                        #buy
-                        self.history[t][2][company]["Reward"][0] = (self.history[t][0][3][0][company_index][0] - buy_price)
+                    # buy
+                    self.history[t][2][company]["Reward"][0] = (self.history[t][0][3][0][company_index][0] - buy_price)
 
-                        #Hold
-                        if list(self.history.keys()).index(t) != len(
-                                self.history.keys()) - 1:  # se nao for o ultimo ponto
-                            t_plus_one = list(self.history.keys())[list(self.history.keys()).index(t) + 1]
-                            self.history[t][2][company]["Reward"][2] = self.discount_factor*np.max(self.history[t_plus_one][2][company]["Reward"])
+                    # Hold
+                    if list(self.history.keys()).index(t) != len(
+                            self.history.keys()) - 1:  # se nao for o ultimo ponto
+                        t_plus_one = list(self.history.keys())[list(self.history.keys()).index(t) + 1]
+                        self.history[t][2][company]["Reward"][2] = self.discount_factor * np.max(
+                            self.history[t_plus_one][2][company]["Reward"])
 
-                            self.history[t][2][company]["Reward_Check"] = 0
+                        self.history[t][2][company]["Reward_Check"] = 0
 
     def train_model(self, size=None, epochs=20, delete_history=False):
         input_data, output_data = self.generate_historical_training_data(size=size, delete_history=delete_history)
@@ -393,7 +395,8 @@ class Trader:
         early_stopping = EarlyStopping(monitor='val_loss', min_delta=1, patience=3, mode='min',
                                        restore_best_weights=True)
         self.train_history = self.model.fit(input_data, output_data, batch_size=self.batch_size, epochs=epochs,
-                       validation_split=self.validation_ratio, callbacks=[early_stopping], verbose=self.verbose)
+                                            validation_split=self.validation_ratio, callbacks=[early_stopping],
+                                            verbose=self.verbose)
         self.model.save(self.model_name)
 
     def create_model(self, stock_correlation_sizes=[1000, 500, 300, 100], wallet_correlation_sizes=[50, 30, 10],
@@ -464,7 +467,7 @@ class Trader:
         decision_sizes = [hp.Int("decision_" + str(i), min_value=3, max_value=500)
                           for i in range(hp.Int("decision_hidden_size", min_value=1, max_value=5))]
 
-        lr = 10**(-hp.Float("learning_rate_exponent", min_value=1, max_value=10))
+        lr = 10 ** (-hp.Float("learning_rate_exponent", min_value=1, max_value=10))
 
         dropout = hp.Float("dropout", min_value=0, max_value=0.9)
 
@@ -536,6 +539,6 @@ class Trader:
 
     def tune_model(self, tuner):
         X, Y = self.generate_historical_training_data(size=None, delete_history=False)
-        tuner.search(X, Y, epochs=5, validation_split=self.validation_ratio)
-        print("________Tuned____________")
-        #return tuner.get_best_models()
+        tuner.search(X, Y, epochs=20, validation_split=self.validation_ratio, callbacks=[EarlyStopping(monitor='val_loss', min_delta=1, patience=3, mode='min',
+                                       restore_best_weights=True)])
+        # return tuner.get_best_models()
