@@ -30,13 +30,12 @@ if __name__ == '__main__':
 
     model_tuning = True
     trader = create_trader()
-    #trader.create_model(stock_correlation_sizes=[1000, 100], wallet_correlation_sizes=[50, 10],
+    # trader.create_model(stock_correlation_sizes=[1000, 100], wallet_correlation_sizes=[50, 10],
     #                    prediction_sizes=[], decision_sizes=[100])
 
     trader.random_choice_chance = 0.4
     trader.now = pd.Timestamp('2021-' + str(random.randint(11, 12)) + '-' + str(
         random.randint(1, 29)) + ' 09:30:00-0400', tz='America/New_York')
-
 
     file = open("text.txt", "w")
 
@@ -76,14 +75,21 @@ if __name__ == '__main__':
             trader.update_rewards()
             trader.random_choice_chance = max(trader.random_choice_chance - 0.05, 0.1)
             file.write("_*_*_*_*_*_*_*_TRAINED BOY_*_*_*_*_*_*_*_\n")
-            tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
+            tuner = keras_tuner.Hyperband(trader.create_model_tunable,
+                                          objective='val_loss',
+                                          executions_per_trial=1,
+                                          overwrite=False,
+                                          project_name="tuner",
+                                          directory="tuner_dir"
+                                          )
+
+            '''tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
                                                      objective='val_loss',
                                                      executions_per_trial=1,
                                                      overwrite=False,
                                                      project_name="tuner",
                                                      directory="tuner_dir",
-                                                     max_trials=trainedos)
-
+                                                     max_trials=trainedos)'''
 
             # Para comparar loss tens de fazer history = model.fit() e depois history.history['loss'] ou 'val_loss' e
             # isso retorna uma lista
