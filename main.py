@@ -40,6 +40,7 @@ if __name__ == '__main__':
     file = open("text.txt", "w")
 
     joe_biden = 0
+    joe_biden_squared = 0
     trainedos = 1
     hungarobaloos = 2
 
@@ -50,6 +51,14 @@ if __name__ == '__main__':
     true_balance = trader.init_balance
 
     tf.keras.utils.plot_model(trader.model, to_file="model.png", show_shapes=True)
+
+    tuner = keras_tuner.Hyperband(trader.create_model_tunable,
+                                  objective='val_loss',
+                                  executions_per_trial=1,
+                                  overwrite=False,
+                                  project_name="tuner",
+                                  directory="tuner_dir"
+                                  )
 
     while True:
 
@@ -75,13 +84,7 @@ if __name__ == '__main__':
             trader.update_rewards()
             trader.random_choice_chance = max(trader.random_choice_chance - 0.05, 0.1)
             file.write("_*_*_*_*_*_*_*_TRAINED BOY_*_*_*_*_*_*_*_\n")
-            tuner = keras_tuner.Hyperband(trader.create_model_tunable,
-                                          objective='val_loss',
-                                          executions_per_trial=1,
-                                          overwrite=False,
-                                          project_name="tuner",
-                                          directory="tuner_dir"
-                                          )
+
 
             '''tuner = keras_tuner.BayesianOptimization(trader.create_model_tunable,
                                                      objective='val_loss',
@@ -94,23 +97,32 @@ if __name__ == '__main__':
             # Para comparar loss tens de fazer history = model.fit() e depois history.history['loss'] ou 'val_loss' e
             # isso retorna uma lista
             # trader.model = trader.tune_model(tuner)[0]
-            trader.tune_model(tuner)
-            scores = get_best_score(tuner.oracle.trials)
-            if trader.score > min(scores):
-                trader.model = tuner.get_best_models()[0]
-                trader.batch_size = tuner.get_best_hyperparameters()[0]["batch_size"]
-                trader.model.save(trader.model_name)
-                trader.score = min(scores)
-                print("Switched Models")
+
+
+            if joe_biden_squared >= 5:
+                trader.tune_model(tuner)
+                scores = get_best_score(tuner.oracle.trials)
+                if trader.score > min(scores):
+                    trader.model = tuner.get_best_models()[0]
+                    trader.batch_size = tuner.get_best_hyperparameters()[0]["batch_size"]
+                    trader.model.save(trader.model_name)
+                    trader.score = min(scores)
+                    print("Switched Models")
+                else:
+                    trader.train_model(None, delete_history=False)
+                joe_biden_squared = 0
             else:
                 trader.train_model(None, delete_history=False)
             # trader.model = tuner.hypermodel.build(tuner.get_best_hyperparameters()[0])
             joe_biden = 0
+            joe_biden_squared = joe_biden_squared +1
+            '''
             trainedos = min(trainedos + hungarobaloos, 20)
+            
             if trainedos >= 20:
                 trainedos = 1
                 os.rmdir("tuner_dir/tuner")
-
+            '''
         trader.update_time()
         file.write("****************************************************\n")
 
