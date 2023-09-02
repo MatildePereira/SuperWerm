@@ -5,7 +5,7 @@ import keras
 import pandas as pd
 import yfinance as yf
 import numpy as np
-from keras.layers import BatchNormalization, LSTM, Dense, Dropout, Input, Concatenate, Flatten
+from keras.layers import LayerNormalization, LSTM, Dense, Dropout, Input, Concatenate, Flatten
 from keras.models import Model
 from keras.optimizers import Adam
 from dateutil.relativedelta import relativedelta
@@ -55,7 +55,7 @@ class Trader:
         self.random_choice_chance = random_choice_chance
         try:
             self.model = keras.models.load_model(model_name)
-            self.score = float(open("score.txt","r").read())
+            self.score = float(open("score.txt", "r").read())
             print("FETCHED MODEL: " + model_name)
         except:
             print("CANNOT FECH MODEL " + model_name, ", CREATING NEW...")
@@ -232,7 +232,7 @@ class Trader:
                 decision = np.argmax(results[i][0])
             else:
                 decision = np.random.choice([1, 2, 0])
-            softmax = lambda x, j: np.exp(np.clip(x[j],0,300)) / sum(np.exp(np.clip(x,0,300)))
+            softmax = lambda x, j: np.exp(np.clip(x[j], 0, 300)) / sum(np.exp(np.clip(x, 0, 300)))
 
             if decision == 0:
                 buy_price = self.get_buy_price(
@@ -317,7 +317,7 @@ class Trader:
                         (i for i in range(len(self.wallet.keys())) if list(self.wallet.keys())[i] == company))
 
                     new_q_values[company_index][0] = new_q_values[company_index][0] * (
-                                1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company]["Reward"]
+                            1 - self.q_learning_rate) + self.q_learning_rate * self.history[t][2][company]["Reward"]
 
                     new_q_values[company_index][0] = np.clip(new_q_values[company_index][0], 0, np.inf)
 
@@ -402,23 +402,23 @@ class Trader:
         self.model.save(self.model_name)
 
         self.score = self.train_history.history["val_loss"][-1]
-        f = open("score.txt","w").write(str(self.score))
+        f = open("score.txt", "w").write(str(self.score))
 
     def create_model(self, stock_correlation_sizes=[1000, 500, 300, 100], wallet_correlation_sizes=[50, 30, 10],
                      prediction_sizes=[400, 200, 100], decision_sizes=[200, 100]):
         inputs = []
         stock_inputs = []
         input2 = Input(shape=(len(self.wallet.keys()), 2,))
-        wallet_input = BatchNormalization(synchronized=True)(input2)
+        wallet_input = LayerNormalization()(input2)
 
         for i in range(len(self.wallet)):
             inputs.append(Input(shape=(self.timesteps, 5,)))
-            stock_inputs.append(BatchNormalization(synchronized=True)(inputs[i]))
+            stock_inputs.append(LayerNormalization()(inputs[i]))
         big_boy = Concatenate()(stock_inputs)
         for size in stock_correlation_sizes[:-1]:
-            big_boy = LSTM(units=size, return_sequences=True)(
+            big_boy = LSTM(size, return_sequences=True)(
                 big_boy)  # big_boy = LSTM(units=size, input_shape=(self.timesteps, 5))(big_boy)
-        big_boy = LSTM(units=stock_correlation_sizes[-1])(big_boy)
+        big_boy = LSTM(stock_correlation_sizes[-1])(big_boy)
         big_boy = Flatten()(big_boy)
 
         wallet_boy = Dense(units=wallet_correlation_sizes[0])(wallet_input)
@@ -430,10 +430,10 @@ class Trader:
         if len(prediction_sizes) > 0:
             prediction_boys = [None for i in range(len(stock_inputs))]
             for i in range(len(stock_inputs)):
-                prediction_boys[i] = LSTM(units=prediction_sizes[0], return_sequences=True)(stock_inputs[i])
+                prediction_boys[i] = LSTM(prediction_sizes[0], return_sequences=True)(stock_inputs[i])
                 for size in prediction_sizes[1:-1]:
-                    prediction_boys[i] = LSTM(units=size, return_sequences=True)(prediction_boys[i])
-                prediction_boys[i] = LSTM(units=prediction_sizes[-1])(prediction_boys[i])
+                    prediction_boys[i] = LSTM(size, return_sequences=True)(prediction_boys[i])
+                prediction_boys[i] = LSTM(prediction_sizes[-1])(prediction_boys[i])
                 prediction_boys[i] = Flatten()(prediction_boys[i])
 
             intermediate_layers = []
@@ -461,45 +461,57 @@ class Trader:
         self.model.compile(optimizer=opt, loss="mse")
 
     def create_model_tunable(self, hp):
+
         stock_correlation_sizes = [hp.Int("stock_correlation_" + str(i), min_value=3, max_value=2000)
                                    for i in range(hp.Int("stock_correlation_hidden_size", min_value=1, max_value=5))]
+
+        #stock_correlation_sizes = [hp.Int("stock_correlation_units", min_value=3, max_value=5000)] * hp.Int(
+        # "stock_correlation_hidden_size", min_value=1, max_value=10)
+
         wallet_correlation_sizes = [hp.Int("wallet_correlation_" + str(i), min_value=1, max_value=100)
                                     for i in
                                     range(hp.Int("wallet_correlation_hidden_size", min_value=1, max_value=5))]
+
         prediction_sizes = [hp.Int("prediction_" + str(i), min_value=5, max_value=1000)
                             for i in range(hp.Int("prediction_hidden_size", min_value=0, max_value=5))]
+
+        #prediction_sizes = [hp.Int("prediction_units", min_value=3, max_value=5000)] * hp.Int("prediction_hidden_size",
+        #                                                                                      min_value=0, max_value=10)
 
         decision_sizes = [hp.Int("decision_" + str(i), min_value=3, max_value=500)
                           for i in range(hp.Int("decision_hidden_size", min_value=1, max_value=5))]
 
-        lr = 10 ** (-hp.Float("learning_rate_exponent", min_value=1, max_value=10))
+        lr = hp.Float("learning_rate_exponent", min_value=0.0000001, max_value=1, sampling='log')
 
         dropout = hp.Float("dropout", min_value=0, max_value=0.9)
 
         clipvalue = hp.Float("clipvalue", min_value=0, max_value=1)
 
         self.batch_size = hp.Int("batch_size", min_value=2, max_value=32)
+
         inputs = []
         stock_inputs = []
         input2 = Input(shape=(len(self.wallet.keys()), 2,))
-        wallet_input = BatchNormalization(synchronized=True)(input2)
+        wallet_input = LayerNormalization()(input2)
 
         for i in range(len(self.wallet)):
             inputs.append(Input(shape=(self.timesteps, 5,)))
-            stock_inputs.append(BatchNormalization(synchronized=True)(inputs[i]))
+            stock_inputs.append(LayerNormalization()(inputs[i]))
         big_boy = Concatenate()(stock_inputs)
         for size in stock_correlation_sizes[:-1]:
-            big_boy = LSTM(units=size, return_sequences=True)(
+            big_boy = LSTM(size, return_sequences=True)(
                 big_boy)  # big_boy = LSTM(units=size, input_shape=(self.timesteps, 5))(big_boy)
             big_boy = Dropout(dropout)(big_boy)
-        big_boy = LSTM(units=stock_correlation_sizes[-1])(big_boy)
+        big_boy = LSTM(stock_correlation_sizes[-1])(big_boy)
         big_boy = Dropout(dropout)(big_boy)
         big_boy = Flatten()(big_boy)
 
         wallet_boy = Dense(units=wallet_correlation_sizes[0])(wallet_input)
         wallet_boy = Dropout(dropout)(wallet_boy)
         for size in wallet_correlation_sizes[1:]:
-            wallet_boy = Dense(units=size, activation="linear")(wallet_boy)
+            wallet_boy = Dense(units=size,
+                               activation=hp.Choice("activation_func", ["linear", "relu", "sigmoid", "tanh"]))(
+                wallet_boy)
             wallet_boy = Dropout(dropout)(wallet_boy)
         wallet_boy = Flatten()(wallet_boy)
 
@@ -507,12 +519,12 @@ class Trader:
         if len(prediction_sizes) > 0:
             prediction_boys = [None for i in range(len(stock_inputs))]
             for i in range(len(stock_inputs)):
-                prediction_boys[i] = LSTM(units=prediction_sizes[0], return_sequences=True)(stock_inputs[i])
+                prediction_boys[i] = LSTM(prediction_sizes[0], return_sequences=True)(stock_inputs[i])
                 prediction_boys[i] = Dropout(dropout)(prediction_boys[i])
                 for size in prediction_sizes[1:-1]:
-                    prediction_boys[i] = LSTM(units=size, return_sequences=True)(prediction_boys[i])
+                    prediction_boys[i] = LSTM(size, return_sequences=True)(prediction_boys[i])
                     prediction_boys[i] = Dropout(dropout)(prediction_boys[i])
-                prediction_boys[i] = LSTM(units=prediction_sizes[-1])(prediction_boys[i])
+                prediction_boys[i] = LSTM(prediction_sizes[-1])(prediction_boys[i])
                 prediction_boys[i] = Dropout(dropout)(prediction_boys[i])
                 prediction_boys[i] = Flatten()(prediction_boys[i])
 
@@ -523,7 +535,9 @@ class Trader:
             for layer in intermediate_layers:
                 decision_boy = Concatenate(axis=1)(layer)
                 for size in decision_sizes:
-                    decision_boy = Dense(size, activation="relu")(decision_boy)
+                    decision_boy = Dense(size, activation=hp.Choice("activation_func",
+                                                                    ["linear", "relu", "sigmoid", "tanh"]))(
+                        decision_boy)
                     decision_boy = Dropout(dropout)(decision_boy)
                 decision_boy = Dense(3, activation="relu")(decision_boy)
                 outputs.append(decision_boy)
@@ -532,7 +546,9 @@ class Trader:
             for i in range(len(self.wallet.keys())):
                 decision_boy = Concatenate(axis=1)(intermediate_layers)
                 for size in decision_sizes:
-                    decision_boy = Dense(size, activation="relu")(decision_boy)
+                    decision_boy = Dense(size, activation=hp.Choice("activation_func",
+                                                                    ["linear", "relu", "sigmoid", "tanh"]))(
+                        decision_boy)
                     decision_boy = Dropout(dropout)(decision_boy)
                 decision_boy = Dense(3, activation="relu")(decision_boy)
                 outputs.append(decision_boy)
@@ -544,6 +560,7 @@ class Trader:
 
     def tune_model(self, tuner):
         X, Y = self.generate_historical_training_data(size=None, delete_history=False)
-        tuner.search(X, Y, epochs=20, validation_split=self.validation_ratio, callbacks=[EarlyStopping(monitor='val_loss', min_delta=1, patience=6, mode='min',
-                                       restore_best_weights=True)])
+        tuner.search(X, Y, epochs=20, validation_split=self.validation_ratio,
+                     callbacks=[EarlyStopping(monitor='val_loss', min_delta=1, patience=6, mode='min',
+                                              restore_best_weights=True)])
         # return tuner.get_best_models()

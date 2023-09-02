@@ -23,7 +23,7 @@ def get_best_score(trials):
 
 def create_trader():
     return Trader("James May", companies=["FDX", "EXPD", "HUBG"], init_balance=5000, buy_tax=0,
-                  pessimism_factor=0, verbose=1)
+                  pessimism_factor=0, verbose=1, q_learning_rate=0.7)
 
 
 if __name__ == '__main__':
@@ -33,7 +33,7 @@ if __name__ == '__main__':
     # trader.create_model(stock_correlation_sizes=[1000, 100], wallet_correlation_sizes=[50, 10],
     #                    prediction_sizes=[], decision_sizes=[100])
 
-    trader.random_choice_chance = 0.4
+    trader.random_choice_chance = 0.9
     trader.now = pd.Timestamp('2021-' + str(random.randint(11, 12)) + '-' + str(
         random.randint(1, 29)) + ' 09:30:00-0400', tz='America/New_York')
 
@@ -98,8 +98,7 @@ if __name__ == '__main__':
             # isso retorna uma lista
             # trader.model = trader.tune_model(tuner)[0]
 
-
-            if joe_biden_squared >= 5:
+            if joe_biden_squared >= 10:
                 trader.tune_model(tuner)
                 scores = get_best_score(tuner.oracle.trials)
                 if trader.score > min(scores):
@@ -113,6 +112,7 @@ if __name__ == '__main__':
                 joe_biden_squared = 0
             else:
                 trader.train_model(None, delete_history=False)
+            tf.keras.utils.plot_model(trader.model, to_file="model.png", show_shapes=True)
             # trader.model = tuner.hypermodel.build(tuner.get_best_hyperparameters()[0])
             joe_biden = 0
             joe_biden_squared = joe_biden_squared +1
